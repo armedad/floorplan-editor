@@ -29,15 +29,50 @@ export function popInput({ x, y, label, value = "", hint = "", choices = null, c
   let picked = choice;
   const input = multiline ? el("textarea", { rows: 3, spellcheck: "false" }) : el("input", { spellcheck: "false", autocomplete: "off" });
   input.value = value;
+  const start = input.value;
+  const changed = () => input.value !== start || picked !== choice;
+  const shield = $("pop-shield");
+  const warn = el("div", { class: "pop-warn", role: "alert", hidden: true }, "You changed this. Save it, or Cancel to throw the change away.");
+  const syncShield = () => {
+    shield.hidden = !changed();
+    if (shield.hidden) warn.hidden = true;
+  };
+  const insist = () => {
+    warn.hidden = false;
+    pop.classList.remove("insist");
+    void pop.offsetWidth;
+    pop.classList.add("insist");
+    input.focus();
+  };
+  // Capture phase, so the click that dismisses an unchanged popup still reaches what was clicked.
+  const onDown = (e) => {
+    if (pop.contains(e.target) || e.target === shield) return;
+    if (changed()) {
+      e.preventDefault();
+      e.stopPropagation();
+      insist();
+    } else finish(false);
+  };
   const finish = (ok) => {
     if (!popDone) return;
     popDone = null;
+    window.removeEventListener("pointerdown", onDown, true);
+    shield.onpointerdown = null;
+    shield.hidden = true;
     pop.hidden = true;
+    pop.classList.remove("insist");
     pop.replaceChildren();
     if (ok) onCommit && onCommit(input.value, picked);
     else onCancel && onCancel();
   };
   popDone = finish;
+  window.addEventListener("pointerdown", onDown, true);
+  shield.onpointerdown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    insist();
+  };
+  input.addEventListener("input", syncShield);
   const row = choices
     ? el(
         "div",
@@ -57,6 +92,7 @@ export function popInput({ x, y, label, value = "", hint = "", choices = null, c
                     b.classList.toggle("active", b === e.currentTarget);
                     b.setAttribute("aria-checked", String(b === e.currentTarget));
                   }
+                  syncShield();
                   input.focus();
                 },
               },
@@ -68,27 +104,31 @@ export function popInput({ x, y, label, value = "", hint = "", choices = null, c
     : null;
   pop.replaceChildren(
     el("label", { class: "pop-label" }, label || ""),
-    el("div", { class: "pop-row" }, input, el("button", { type: "button", class: "primary", title: "Apply (Enter); Esc cancels", on: { click: () => finish(true) } }, "Set")),
+    el("div", { class: "pop-row" }, input),
     row,
     hint ? el("div", { class: "pop-hint" }, hint) : null,
+    warn,
+    el(
+      "div",
+      { class: "pop-buttons" },
+      el("button", { type: "button", title: "Close without changing anything (Esc)", on: { click: () => finish(false) } }, "Cancel"),
+      el("button", { type: "button", class: "primary", title: "Save (Enter)", on: { click: () => finish(true) } }, "Save"),
+    ),
   );
   pop.hidden = false;
   const w = pop.offsetWidth;
   const h = pop.offsetHeight;
   pop.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, x - w / 2))}px`;
   pop.style.top = `${Math.max(8, Math.min(window.innerHeight - h - 8, y))}px`;
-  input.addEventListener("keydown", (e) => {
+  pop.onkeydown = (e) => {
     e.stopPropagation();
-    if (e.key === "Enter" && !(multiline && e.shiftKey)) {
-      e.preventDefault();
-      finish(true);
-    } else if (e.key === "Escape") {
+    if (e.key === "Escape") {
       e.preventDefault();
       finish(false);
+    } else if (e.key === "Enter" && e.target === input && !(multiline && e.shiftKey)) {
+      e.preventDefault();
+      finish(true);
     }
-  });
-  pop.onfocusout = (e) => {
-    if (!pop.contains(e.relatedTarget)) setTimeout(() => popDone === finish && !pop.contains(document.activeElement) && finish(false), 0);
   };
   input.focus();
   if (selectAll) input.select();

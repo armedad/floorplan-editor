@@ -1307,7 +1307,7 @@ function openDimInput(kind, id, d) {
     y: sy + 18,
     label: d.title,
     value: formatLength(d.value),
-    hint: `Type 10'6", 126, or math like 10' - 4.5.${d.anchors ? " The highlighted side stays put." : ""} Enter applies; Esc cancels.`,
+    hint: `Type 10'6", 126, or math like 10' - 4.5.${d.anchors ? " The highlighted side stays put." : ""} Enter saves; Esc cancels.`,
     choices: d.anchors ? ["start", "center", "end"].map((a) => [a, d.anchors[a].replace(/^Keep (the )?/, "")]) : null,
     choice,
     onCommit: (text, anchor) => {

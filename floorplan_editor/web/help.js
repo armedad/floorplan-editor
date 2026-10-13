@@ -155,7 +155,7 @@ export const HELP = {
     more: ["Every size depends on this. The easiest way to set it is Set scale from a known length: click both ends of a printed dimension and type it."],
   },
   "size-field": {
-    tip: "Type a size; Enter applies it",
+    tip: "Type a size; Enter saves it",
     more: [
       LENGTHS,
       "Up and Down arrows nudge by 1\" (Shift 12\", Alt 1/4\") and apply at once. Esc puts the value back. Dragging the field's name sideways scrubs it.",
