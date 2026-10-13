@@ -1,0 +1,45 @@
+{
+  "name": "Sample apartment (made up)",
+  "units": "inches",
+  "compass": {"up": "north", "right": "east", "down": "south", "left": "west"},
+  "canvas": {"width_px": 860, "height_px": 580, "px_per_inch": 2, "origin_px": [30, 30]},
+  "walls": [
+    {"id": "ext-n", "x1": 0, "y1": 0, "x2": 400, "y2": 0, "thickness": 6},
+    {"id": "ext-e", "x1": 400, "y1": 0, "x2": 400, "y2": 260, "thickness": 6},
+    {"id": "ext-s", "x1": 400, "y1": 260, "x2": 0, "y2": 260, "thickness": 6},
+    {"id": "ext-w", "x1": 0, "y1": 260, "x2": 0, "y2": 0, "thickness": 6},
+    {"id": "bath-w", "x1": 300, "y1": 0, "x2": 300, "y2": 110, "thickness": 4},
+    {"id": "bath-s", "x1": 300, "y1": 110, "x2": 400, "y2": 110, "thickness": 4},
+    {"id": "bed-n", "x1": 240, "y1": 110, "x2": 300, "y2": 110, "thickness": 4},
+    {"id": "bed-w", "x1": 240, "y1": 110, "x2": 240, "y2": 260, "thickness": 4},
+    {"id": "column", "x1": 160, "y1": 120, "x2": 160, "y2": 132, "thickness": 12}
+  ],
+  "openings": [
+    {"id": "kitchen-window", "wall": "ext-n", "type": "window", "offset": 150, "width": 60},
+    {"id": "bed-window", "wall": "ext-e", "type": "window", "offset": 150, "width": 60},
+    {"id": "front-door", "wall": "ext-s", "type": "door", "offset": 280, "width": 36, "hinge": "start", "swing": "cw"},
+    {"id": "bath-door", "wall": "bath-s", "type": "door", "offset": 20, "width": 28, "hinge": "start", "swing": "ccw"},
+    {"id": "bed-door", "wall": "bed-w", "type": "door", "offset": 20, "width": 30, "hinge": "start", "swing": "ccw"}
+  ],
+  "counters": [
+    {"id": "kitchen-l", "points": [[3, 3], [140, 3], [140, 27], [27, 27], [27, 100], [3, 100]]},
+    {"id": "peninsula", "x": 100, "y": 60, "w": 25, "h": 60, "overhang": {"edge": "east", "inches": 12}}
+  ],
+  "fixtures": [
+    {"id": "fridge", "type": "refrigerator", "x": 18, "y": 120, "w": 30, "h": 30},
+    {"id": "kitchen-sink", "type": "sink", "x": 50, "y": 15, "w": 30, "h": 22},
+    {"id": "dw", "type": "dishwasher", "x": 80, "y": 15, "w": 24, "h": 24},
+    {"id": "range", "type": "range", "x": 118, "y": 15, "w": 30, "h": 24},
+    {"id": "stool-1", "type": "stool", "x": 140, "y": 75, "w": 14, "h": 14},
+    {"id": "stool-2", "type": "stool", "x": 140, "y": 105, "w": 14, "h": 14},
+    {"id": "toilet", "type": "toilet", "x": 320, "y": 20, "w": 20, "h": 28},
+    {"id": "tub", "type": "tub", "x": 382, "y": 35, "w": 30, "h": 60},
+    {"id": "bath-sink", "type": "sink", "x": 330, "y": 90, "w": 24, "h": 18}
+  ],
+  "labels": [
+    {"text": "KITCHEN", "x": 75, "y": 70, "size_px": 14},
+    {"text": "LIVING", "x": 120, "y": 200, "size_px": 18},
+    {"text": "BEDROOM", "x": 320, "y": 190, "size_px": 18},
+    {"text": "BATH", "x": 345, "y": 60, "size_px": 12}
+  ]
+}
