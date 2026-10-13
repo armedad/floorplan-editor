@@ -785,6 +785,46 @@ button.danger:hover {
   font-size: 11px;
   color: #6a737d;
 }
+#tip {
+  position: fixed;
+  z-index: 60;
+  max-width: 300px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: #263238;
+  color: #fff;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+#tip.expanded {
+  max-width: 360px;
+  background: #fff;
+  color: #1d2329;
+  border: 1px solid #ccd3da;
+}
+#tip .tip-main {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: baseline;
+}
+#tip kbd {
+  color: #b0bec5;
+  white-space: nowrap;
+}
+#tip.expanded kbd {
+  color: #6a737d;
+}
+#tip .tip-learn {
+  margin-top: 3px;
+  padding: 0;
+  color: #90caf9;
+  font-size: 12px;
+}
+#tip .tip-more p {
+  margin: 6px 0 0;
+  line-height: 1.4;
+}
 #pop {
   position: fixed;
   z-index: 45;

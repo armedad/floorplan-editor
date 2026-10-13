@@ -317,7 +317,7 @@ export function renderActionBar(box) {
           {
             type: "button",
             class: cmd.danger ? "danger" : "",
-            title: `${cmd.label}${cmd.keys ? ` (${cmd.keys[0]})` : ""}`,
+            "data-help": cmd.id,
             on: { click: () => (remember(cmd.id), cmd.run()) },
           },
           cmd.barLabel ? cmd.barLabel(c) : cmd.label,

@@ -125,16 +125,24 @@ appears:
 - **Commands (Ctrl+K)** lists every command with its shortcut. Type a few letters to find
   one ("del", "scale", "flag").
 
+Hover over any button or setting for a tooltip with its shortcut. Tooltips on the harder
+ones (tracing, converting, thickness, steps and merging) have a **Learn more** link that
+expands into a fuller explanation; F1 expands it from the keyboard.
+
 ### Selecting
 
-- Click an object to select it. Shift+click (or Ctrl+click) adds or removes one.
-- Drag across empty space to select an area. Dragging left to right selects what is fully
-  inside the box (blue). Dragging right to left selects anything the box touches (green,
-  dashed). Hold Shift to add to the selection.
+- Click an object to select it. Shift+click (or Ctrl+click) adds or removes one. Click
+  empty space to clear the selection.
+- **Ctrl+drag** draws a box to select an area, and **Shift+drag** adds the box to the
+  selection. Either one works starting anywhere, even on top of walls. Dragging left to
+  right selects what is fully inside the box (blue). Dragging right to left selects
+  anything the box touches (green, dashed).
 - Ctrl+A selects everything. Esc clears the selection.
-- Drag any selected object to move them all. Wall ends that meet another wall move
-  together; hold Alt to pull one free. Shift locks a move to one axis.
-- Space+drag or middle-drag pans. The mouse wheel zooms.
+- Drag an object to move it, along with everything else selected. Wall ends that meet
+  another wall move together; hold Alt to pull one free. Pressing Shift after the drag
+  starts locks it to one axis.
+- Drag empty space to pan (or Space+drag or middle-drag anywhere). The mouse wheel zooms.
+  The cursor shows what a drag will do: a hand pans, arrows move, a crosshair draws a box.
 
 ### Exact sizes and positions
 
@@ -203,7 +211,7 @@ The tracer sees ink, not meaning, so a traced plan is all walls: door leaves, fi
 outlines, and the letters of room names come out as short walls, and a thick wall often
 comes out as two or three thin ones side by side. These tools turn them into what they are.
 
-- **Convert… (Shift+C).** Select the pieces (drag a box around them, or Shift+click) and
+- **Convert… (Shift+C).** Select the pieces (Ctrl+drag a box around them, or Shift+click) and
   choose what they are. Each choice has a one-key shortcut while the menu is open:
   - **W, one wall.** Walls merge into one; anything else becomes a wall along the
     selection's long side.
@@ -328,10 +336,13 @@ Ctrl+K shows all of these, searchable.
 | Z | Zoom to the selection |
 | 0 | Fit the whole sheet in view |
 | + and - | Zoom in and out |
+| Ctrl+drag, Shift+drag | Select with a box; add a box to the selection (Select tool) |
+| Drag empty space | Pan (Select tool) |
 | Space + drag, middle-drag | Pan with any tool |
 | Shift+D | Show or hide measurements on the selection |
 | \ | Show or hide the side panel |
 | Ctrl+K or ? | Every command, searchable |
+| F1 | Expand the tooltip's Learn more |
 
 ## Plan file format
 

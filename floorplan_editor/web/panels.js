@@ -92,7 +92,7 @@ const fmt = (v) => String(round2(v));
 function lengthField(label, value, commit, { hint, unit = "length", min = -Infinity, mixed = false } = {}) {
   const parse = unit === "length" ? parseLength : (t) => Number(String(t).replace(/[°\s]/g, ""));
   const show = (v) => (unit === "length" ? formatLength(v) : unit === "angle" ? `${round2(v)}°` : String(round2(v)));
-  const input = el("input", { value: fmt(value), spellcheck: "false", "aria-label": label });
+  const input = el("input", { value: fmt(value), spellcheck: "false", "aria-label": label, "data-help": unit === "length" ? "size-field" : null });
   const note = el("span", { class: "hint" }, hint ?? show(value));
   const apply = (v) => {
     if (!Number.isFinite(v) || v < min) {
@@ -160,7 +160,7 @@ function anchorRow(key, anchors) {
   return el(
     "div",
     { class: "anchor-row", role: "radiogroup", "aria-label": "which side stays put" },
-    el("span", { class: "hint" }, "Stays put:"),
+    el("span", { class: "hint", "data-help": "stays-put" }, "Stays put:"),
     ...["start", "center", "end"].map((a) =>
       el(
         "button",
@@ -212,6 +212,11 @@ function idField(kind, obj) {
   return textField("id", obj.id, (v) => v.trim() && update(kind, obj.id, { id: v.trim() }));
 }
 
+function withHelp(node, key) {
+  node.dataset.help = key;
+  return node;
+}
+
 function more(title, ...items) {
   return el("details", { class: "more" }, el("summary", {}, title), ...items.flat().filter(Boolean));
 }
@@ -223,7 +228,7 @@ function actionsRow() {
     "div",
     { class: "row wrap actions" },
     cmds.map((cmd) =>
-      el("button", { type: "button", class: cmd.danger ? "danger" : "", title: `${cmd.label}${cmd.keys ? ` (${cmd.keys[0]})` : ""}`, on: { click: () => cmd.run() } }, cmd.barLabel ? cmd.barLabel(c) : cmd.label),
+      el("button", { type: "button", class: cmd.danger ? "danger" : "", "data-help": cmd.id, on: { click: () => cmd.run() } }, cmd.barLabel ? cmd.barLabel(c) : cmd.label),
     ),
   );
 }
@@ -246,11 +251,18 @@ function thicknessFields(walls) {
   const row = el(
     "div",
     { class: "anchor-row", role: "radiogroup", "aria-label": "which face stays put" },
-    el("span", { class: "hint" }, "Stays put:"),
+    el("span", { class: "hint", "data-help": "stays-put" }, "Stays put:"),
     ...faces.map(([v, text]) =>
       el(
         "button",
-        { type: "button", role: "radio", "aria-checked": String(v === keep), class: v === keep ? "active" : "", on: { click: () => ((app.opts.thicknessKeep = v), renderProps(app)) } },
+        {
+          type: "button",
+          role: "radio",
+          "aria-checked": String(v === keep),
+          class: v === keep ? "active" : "",
+          title: v === "center" ? "Keep the middle line where it is" : `Keep the ${text} face where it is`,
+          on: { click: () => ((app.opts.thicknessKeep = v), renderProps(app)) },
+        },
         text,
       ),
     ),
@@ -386,10 +398,10 @@ function flagProps(f) {
     el(
       "div",
       { class: "row wrap" },
-      el("button", { type: "button", on: { click: () => copyText(flagText(f), f.id) } }, "Copy for Cursor"),
-      el("button", { type: "button", on: { click: () => zoomToFlag(f.id) } }, "Zoom to it"),
-      el("button", { type: "button", on: { click: () => editFlagNote(f.id) } }, "Edit note…"),
-      el("button", { type: "button", class: "danger", on: { click: () => deleteFlags([f.id]) } }, "Remove"),
+      el("button", { type: "button", "data-help": "flag-copy", on: { click: () => copyText(flagText(f), f.id) } }, "Copy for Cursor"),
+      el("button", { type: "button", title: "Zoom the drawing to this flag", on: { click: () => zoomToFlag(f.id) } }, "Zoom to it"),
+      el("button", { type: "button", "data-help": "flag-note", on: { click: () => editFlagNote(f.id) } }, "Edit note…"),
+      el("button", { type: "button", class: "danger", title: "Remove this flag", on: { click: () => deleteFlags([f.id]) } }, "Remove"),
     ),
   ];
 }
@@ -402,19 +414,22 @@ function planProps(plan) {
   return [
     textField("name", plan.name || "", (v) => E.send({ op: "set_meta", name: v.trim() })),
     textField("notes", plan.notes || "", (v) => E.send({ op: "set_meta", notes: v.trim() }), { multiline: true }),
-    selectField("up is", c.up, CARDINALS.map((d) => [d, d]), (v) => E.send({ op: "set_compass", up: v })),
+    withHelp(selectField("up is", c.up, CARDINALS.map((d) => [d, d]), (v) => E.send({ op: "set_compass", up: v })), "plan-up"),
     el("div", { class: "note" }, `Right is ${c.right}, down is ${c.down}, left is ${c.left}.`),
-    lengthField(
-      "scale",
-      plan.canvas.px_per_inch,
-      (v) => v > 0 && E.send({ op: "calibrate", p1: [0, 0], p2: [v, 0], length: 1 }),
-      { unit: "number", hint: "sheet px per inch" },
+    withHelp(
+      lengthField(
+        "scale",
+        plan.canvas.px_per_inch,
+        (v) => v > 0 && E.send({ op: "calibrate", p1: [0, 0], p2: [v, 0], length: 1 }),
+        { unit: "number", hint: "sheet px per inch" },
+      ),
+      "plan-scale",
     ),
     el(
       "div",
       { class: "row wrap" },
-      el("button", { type: "button", title: "Click two ends of a length you know (K)", on: { click: () => E.setTool("calibrate") } }, "Set scale from a known length (K)"),
-      el("button", { type: "button", on: { click: () => E.fitView() } }, "Fit view (0)"),
+      el("button", { type: "button", "data-help": "tool-calibrate", on: { click: () => E.setTool("calibrate") } }, "Set scale from a known length (K)"),
+      el("button", { type: "button", "data-help": "fit", on: { click: () => E.fitView() } }, "Fit view (0)"),
     ),
     el("p", { class: "note" }, counts),
     el("p", { class: "note" }, "Select something to see and type its sizes. Ctrl+K lists every command."),
@@ -437,7 +452,7 @@ function multiProps(info) {
           "p",
           { class: "note ids" },
           `ids: ${ids.length > 24 ? `${ids.slice(0, 24).join(", ")}, …` : ids.join(", ")} `,
-          el("button", { type: "button", class: "link", on: { click: () => copyText(ids.join(", "), `${ids.length} ids`) } }, "copy"),
+          el("button", { type: "button", class: "link", "data-help": "copy-ids", on: { click: () => copyText(ids.join(", "), `${ids.length} ids`) } }, "copy"),
         )
       : null,
     el(

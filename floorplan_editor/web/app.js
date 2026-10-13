@@ -22,6 +22,7 @@ import {
 import { dimsFor, opForDim } from "./measure.js";
 import { initOpen, renderEmpty } from "./open.js";
 import { initPanels, renderFiles, renderProps } from "./panels.js";
+import { initTips } from "./help.js";
 import { $, popInput, popOpen } from "./ui.js";
 
 const svg = $("svg");
@@ -854,8 +855,8 @@ function toolPrompt() {
   const typing = "or type a length (10'6\"), length<angle (8'<90), or right, down (48, 0) and press Enter";
   switch (app.tool) {
     case "select":
-      if (app.selection.size) return "Click a measurement to type it · drag to move · arrows nudge · Shift+click adds or removes";
-      return "Click to select · drag across empty space to select an area · Space+drag pans · right-click for actions · Ctrl+K for every command";
+      if (app.selection.size) return "Drag it to move · Ctrl+drag a box to select instead, Shift+drag to add · Shift+click adds or removes one · click a measurement to type it";
+      return "Click to select · Ctrl+drag a box to select an area (Shift+drag adds) · drag empty space to pan · right-click for actions";
     case "wall":
       return d ? `Click the next corner, ${typing}. Double-click, Enter, or Esc stops.` : "Click the first corner of the wall. Shift keeps it straight.";
     case "polygon":
@@ -1175,6 +1176,10 @@ function toolHover(e) {
   const d = app.draft;
   app.hoverGhost = null;
   app.hoverEnd = null;
+  if (tool === "select") {
+    const onHandle = e.target.dataset && e.target.dataset.h !== undefined;
+    svg.style.cursor = onHandle ? "" : e.shiftKey || e.ctrlKey || e.metaKey ? "crosshair" : pickAt(...app.cursor.world) ? "move" : "grab";
+  }
   if ((tool === "wall" || tool === "polygon") && d && d.pts.length) {
     const a = d.pts[d.pts.length - 1];
     const p = snapped(e, a);
@@ -1470,7 +1475,7 @@ function marqueeUp() {
   const [ax, ay] = d.start;
   const [bx, by] = d.cur || d.start;
   if (Math.hypot(bx - ax, by - ay) * app.view.z < 4) {
-    if (!d.add) select(null);
+    if (d.toggle) select(d.toggle, { toggle: true });
     else renderUI();
     return;
   }
@@ -1736,17 +1741,19 @@ svg.addEventListener("pointerdown", async (e) => {
   }
   const [wx, wy] = toWorld(e);
   const hit = pickAt(wx, wy);
-  if (hit) {
-    if (e.shiftKey || e.ctrlKey || e.metaKey) {
-      select(hit.key, { toggle: true });
-      if (!app.selection.has(hit.key)) return;
-    } else if (!app.selection.has(hit.key)) select(hit.key);
+  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+    app.drag = { type: "marquee", start: [wx, wy], cur: null, add: e.shiftKey, toggle: hit ? hit.key : null };
+  } else if (hit) {
+    if (!app.selection.has(hit.key)) select(hit.key);
     const keys = [...app.selection].filter((k) => !k.startsWith("flags:"));
     app.drag = { type: "move", keys, start: [wx, wy], moved: false };
   } else {
-    app.drag = { type: "marquee", start: [wx, wy], cur: null, add: e.shiftKey || e.ctrlKey || e.metaKey };
+    app.drag = { type: "pan", sx: e.clientX, sy: e.clientY, vx: app.view.x, vy: app.view.y, clickClears: true };
+    svg.classList.add("panning");
   }
 });
+
+svg.addEventListener("dragstart", (e) => e.preventDefault());
 
 window.addEventListener("pointermove", (e) => {
   if (!app.plan) return;
@@ -1799,8 +1806,10 @@ window.addEventListener("pointerup", async (e) => {
   svg.classList.remove("panning");
   // The release point counts even when no pointermove arrived (native drag-and-drop swallows them).
   if (d.type !== "handle" || e.clientX !== d.sx || e.clientY !== d.sy) dragTo(e);
-  if (d.type === "pan") app.drag = null;
-  else if (d.type === "move") await moveUp(e);
+  if (d.type === "pan") {
+    app.drag = null;
+    if (d.clickClears && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 4) select(null);
+  } else if (d.type === "move") await moveUp(e);
   else if (d.type === "handle") await handleUp(e);
   else if (d.type === "marquee") marqueeUp();
   else if (d.type === "flag-new") flagNewUp(e);
@@ -1994,6 +2003,7 @@ app.show.opacity = Number($("sheet-opacity").value);
 initPanels(app);
 initOpen();
 initCommands();
+initTips();
 setTool("select");
 api("/api/state")
   .then((state) => {

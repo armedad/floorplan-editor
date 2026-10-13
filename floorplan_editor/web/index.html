@@ -12,7 +12,7 @@
         <button id="open-more" class="primary" title="Recent folders and other ways to open" aria-label="more ways to open">▾</button>
       </div>
       <div class="group" id="tools" role="toolbar" aria-label="tools">
-        <button id="tool-select" data-tool="select" title="Select and move; drag across empty space to select an area (V)">Select <kbd>V</kbd></button>
+        <button id="tool-select" data-tool="select" title="Select and move; Ctrl+drag selects an area, dragging empty space pans (V)">Select <kbd>V</kbd></button>
         <button id="tool-wall" data-tool="wall" title="Draw walls: click each corner, or type lengths (W)">Wall <kbd>W</kbd></button>
         <button id="tool-door" data-tool="door" title="Click a wall to add a door (D)">Door <kbd>D</kbd></button>
         <button id="tool-window" data-tool="window" title="Click a wall to add a window (N)">Window <kbd>N</kbd></button>
@@ -36,7 +36,7 @@
     </header>
     <main>
       <div id="stage">
-        <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+        <svg id="svg" xmlns="http://www.w3.org/2000/svg" role="application" aria-label="floor plan drawing">
           <g id="world">
             <rect id="paper" x="0" y="0" width="0" height="0" />
             <image id="sheet" x="0" y="0" preserveAspectRatio="none" />
@@ -86,7 +86,7 @@
           <summary><h2>Folder and steps</h2></summary>
           <form id="folder-form" class="row">
             <input id="folder-input" spellcheck="false" aria-label="folder path" />
-            <button type="submit">Go</button>
+            <button type="submit" id="folder-go">Go</button>
           </form>
           <ul id="file-list"></ul>
           <div class="row wrap">
@@ -124,7 +124,7 @@
           </div>
           <div id="trace-note" class="note"></div>
           <h3>Clean up a trace</h3>
-          <p class="note">Tracing sees ink, not meaning. Box-select the pieces of a door, fixture, or label and Convert them (Shift+C). These find the common leftovers; with walls selected they look only there.</p>
+          <p class="note">Tracing sees ink, not meaning. Ctrl+drag a box around the pieces of a door, fixture, or label and Convert them (Shift+C). These find the common leftovers; with walls selected they look only there.</p>
           <div class="row wrap">
             <button id="clean-stacked">Select stacked walls</button>
             <button id="clean-merge">Merge stacked (Shift+J)</button>
@@ -142,6 +142,7 @@
     </footer>
 
     <div id="menu" role="menu" hidden></div>
+    <div id="tip" role="tooltip" hidden></div>
     <div id="pop" role="dialog" hidden></div>
     <div id="palette" hidden>
       <div class="palette-box" role="dialog" aria-label="commands">

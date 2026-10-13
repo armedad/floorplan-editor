@@ -68,7 +68,7 @@ export function popInput({ x, y, label, value = "", hint = "", choices = null, c
     : null;
   pop.replaceChildren(
     el("label", { class: "pop-label" }, label || ""),
-    el("div", { class: "pop-row" }, input, el("button", { type: "button", class: "primary", on: { click: () => finish(true) } }, "Set")),
+    el("div", { class: "pop-row" }, input, el("button", { type: "button", class: "primary", title: "Apply (Enter); Esc cancels", on: { click: () => finish(true) } }, "Set")),
     row,
     hint ? el("div", { class: "pop-hint" }, hint) : null,
   );
