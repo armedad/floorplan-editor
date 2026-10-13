@@ -135,6 +135,15 @@ export const HELP = {
   "flag-copy": { tip: "Copy a one-line reference to paste into a Cursor chat" },
   "flag-done": { tip: "Mark the flag handled (or reopen it)" },
   "flag-note": { tip: "Edit the flag's note, which Cursor reads" },
+  comment: {
+    tip: "Write a comment about this object",
+    keys: "Ctrl+/",
+    more: [
+      "A comment belongs to one object and is saved in the plan with it. It moves when the object moves, carries over when pieces are merged or converted, and goes away if the object is deleted. Copies don't get it. Ctrl+Z undoes adding, editing, or deleting one.",
+      "Commented objects get a purple bubble with the count; click it to read them. The Comments panel lists every comment in the plan. Cursor reads them, writes its own (marked Cursor), and can edit or delete them.",
+      "Flags are for pointing at a place for a task and marking it done; comments are lasting notes about a thing.",
+    ],
+  },
 
   // ---------------------------------------------------------------- side panel: plan
   "plan-up": {
@@ -186,6 +195,7 @@ export const HELP = {
     keys: "I",
     more: ["Ids are how Cursor names things, so you can say \"convert w74 and w75 into a door\". Ctrl+Shift+C copies the selected ids. Cursor can also see what you have selected, so \"make what I selected a toilet\" works too."],
   },
+  "show-comments": { tip: "Show a purple bubble on each object that has comments; click one to read them" },
   "show-erase": { tip: "Show erase regions as blue boxes (the ink stays whited out either way)" },
   snap: { tip: "Snap points to wall ends and wall faces" },
   grid: { tip: "Snap points to whole inches" },

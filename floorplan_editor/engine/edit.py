@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import copy
 import math
+import re
+from datetime import datetime, timezone
 
 from .analyze import Frame, doorway, gap_among, items_box, merged_geometry, nearest_wall, parallel, wall_groups
 from .geometry import along, parse_length, project, wall_length
-from .model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS, SIDE_VEC, compass_from_up
+from .model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS, SIDE_VEC, comments_of, compass_from_up
 
 JOIN_TOL = 1.0
 ID_PREFIX = {"walls": "wall", "openings": "door", "counters": "counter", "fixtures": "fixture", "erase": "erase"}
@@ -52,6 +54,105 @@ def find(plan: dict, kind: str, ref) -> dict:
 
 def _r(value: float) -> float:
     return round(float(value), 2)
+
+
+# ---------------------------------------------------------------- comments
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def comment_ids(plan: dict) -> set[str]:
+    return {str(c.get("id")) for *_, c in comments_of(plan)}
+
+
+def _next_comment_id(taken: set[str]) -> str:
+    numbers = [int(m.group(1)) for t in taken if (m := re.fullmatch(r"c(\d+)", t))]
+    return f"c{max(numbers, default=0) + 1}"
+
+
+def new_comment_id(plan: dict) -> str:
+    return _next_comment_id(comment_ids(plan))
+
+
+def _fresh_comment_ids(plan: dict, obj: dict) -> None:
+    """Give `obj`'s comments ids no other comment in the plan uses."""
+    mine = obj.get("comments") or []
+    taken = {str(c.get("id")) for *_, c in comments_of(plan) if not any(c is m for m in mine)}
+    for comment in mine:
+        if not comment.get("id") or comment["id"] in taken:
+            comment["id"] = _next_comment_id(taken)
+        taken.add(comment["id"])
+
+
+def _carry_comments(target: dict, sources: list[dict]) -> None:
+    carried = [c for s in sources if s is not target for c in s.get("comments") or []]
+    if carried:
+        target["comments"] = (target.get("comments") or []) + carried
+
+
+def find_comment(plan: dict, comment_id: str):
+    """(kind, ref, object, comment) for a comment id such as c3."""
+    wanted = str(comment_id).strip().lower()
+    for kind, ref, obj, comment in comments_of(plan):
+        if str(comment.get("id")).lower() == wanted:
+            return kind, ref, obj, comment
+    raise EditError(f"no comment {comment_id!r}")
+
+
+def _comment_text(op: dict) -> str:
+    text = str(op.get("text") or "").strip()
+    if not text:
+        raise EditError("a comment needs text")
+    return text
+
+
+def _ref(kind: str, ref):
+    return [kind, int(ref) if kind == "labels" else ref]
+
+
+def op_add_comment(plan: dict, op: dict):
+    kind, ref = op["kind"], op["id"]
+    obj = find(plan, kind, ref)
+    comment_id = op.get("comment_id") or new_comment_id(plan)
+    if comment_id in comment_ids(plan):
+        raise EditError(f"comment id {comment_id!r} is taken")
+    comment = {"id": comment_id, "text": _comment_text(op), "by": str(op.get("by") or "user"), "created": op.get("created") or _now()}
+    obj.setdefault("comments", []).append(comment)
+    return _ref(kind, ref)
+
+
+def op_update_comment(plan: dict, op: dict):
+    """Change a comment's text, or move it to another object with `to`: [kind, id]."""
+    kind, ref, obj, comment = find_comment(plan, op["comment"])
+    if op.get("text") is not None:
+        text = _comment_text(op)
+        if text != comment["text"]:
+            comment["text"] = text
+            comment["edited"] = op.get("edited") or _now()
+    if op.get("to"):
+        to_kind, to_ref = op["to"]
+        target = find(plan, to_kind, to_ref)
+        if target is not obj:
+            obj["comments"] = [c for c in obj["comments"] if c is not comment]
+            if not obj["comments"]:
+                obj.pop("comments")
+            target.setdefault("comments", []).append(comment)
+            kind, ref = to_kind, to_ref
+    return _ref(kind, ref)
+
+
+def op_delete_comments(plan: dict, op: dict):
+    ids = op.get("comments") or [op["comment"]]
+    ref = None
+    for comment_id in ids:
+        kind, owner, obj, comment = find_comment(plan, comment_id)
+        obj["comments"] = [c for c in obj["comments"] if c is not comment]
+        if not obj["comments"]:
+            obj.pop("comments")
+        ref = _ref(kind, owner)
+    return ref
 
 
 def clamp_openings(plan: dict, wall_id: str) -> None:
@@ -140,6 +241,7 @@ def op_add(plan: dict, op: dict):
     obj = copy.deepcopy(op["obj"])
     if kind == "labels":
         plan.setdefault("labels", []).append(obj)
+        _fresh_comment_ids(plan, obj)
         return ["labels", len(plan["labels"]) - 1]
     if kind not in ID_KEYS:
         raise EditError(f"unknown collection {kind!r}")
@@ -161,6 +263,7 @@ def op_add(plan: dict, op: dict):
         obj["width"] = _r(width)
         obj["offset"] = _r(max(0.0, min(t - width / 2, length - width)))
     plan.setdefault(kind, []).append(obj)
+    _fresh_comment_ids(plan, obj)
     return [kind, obj["id"]]
 
 
@@ -304,6 +407,7 @@ def op_duplicate(plan: dict, op: dict):
             continue
         copy_ = copy.deepcopy(source)
         copy_.pop("id", None)
+        copy_.pop("comments", None)
         if kind == "openings":
             copy_["offset"] = float(source["offset"]) + float(source["width"]) + 6
         new_ref = op_add(plan, {"kind": kind, "obj": copy_})
@@ -316,6 +420,7 @@ def op_duplicate(plan: dict, op: dict):
             for opening in [o for o in plan.get("openings", []) if o["wall"] == ref]:
                 twin = copy.deepcopy(opening)
                 twin.pop("id")
+                twin.pop("comments", None)
                 twin["wall"] = new_ref[1]
                 refs.append(op_add(plan, {"kind": "openings", "obj": twin}))
     return refs
@@ -375,6 +480,7 @@ def op_split_wall(plan: dict, op: dict):
     if t < 1 or t > length - 1:
         raise EditError("split point is too close to the end of the wall")
     new = dict(wall)
+    new.pop("comments", None)
     new["id"] = op.get("new_id") or new_id(plan, wall["id"])
     new["x1"], new["y1"] = _r(sx), _r(sy)
     wall["x2"], wall["y2"] = _r(sx), _r(sy)
@@ -562,6 +668,7 @@ def merge_into_one(plan: dict, walls: list[dict], thickness: float | None = None
         for end in ("start", "end"):
             joined += _endpoints_at(plan, *_get_end(wall, end), JOIN_TOL, group_ends)
     keep.update(fields)
+    _carry_comments(keep, walls)
     plan["walls"] = [w for w in plan["walls"] if w is keep or w["id"] not in ids]
     for opening, (cx, cy) in moved:
         opening["wall"] = keep["id"]
@@ -772,6 +879,8 @@ def op_convert(plan: dict, op: dict):
     if not op.get("keep"):
         gone = [(k, r) for k, r in items if not (k == "walls" and r in keep_ids)]
         if gone:
+            present = [(k, r) for k, r in gone if k == "labels" or any(o.get("id") == r for o in plan.get(k, []))]
+            _carry_comments(obj, [find(plan, k, r) for k, r in present])
             op_delete_many(plan, {"items": [list(i) for i in gone]})
     ref = op_add(plan, {"kind": kind, "obj": obj})
     if kind == "openings":
@@ -811,6 +920,9 @@ OPS = {
     "merge_stacked": op_merge_stacked,
     "set_wall_thickness": op_set_wall_thickness,
     "convert": op_convert,
+    "add_comment": op_add_comment,
+    "update_comment": op_update_comment,
+    "delete_comments": op_delete_comments,
 }
 
 

@@ -2,6 +2,7 @@
 
 import { api } from "./api.js";
 import { handleKey, initCommands, renderActionBar, showContextMenu } from "./commands.js";
+import { commentsMarkup, renderCommentsPanel, revealComments } from "./comments.js";
 import { addFlag, deleteFlags, editFlagNote, flagsMarkup, getFlag, moveFlag, renderFlagsPanel } from "./flags.js";
 import {
   Canvas,
@@ -32,6 +33,7 @@ const paper = $("paper");
 const planLayer = $("plan-layer");
 const eraseLayer = $("erase-layer");
 const traceLayer = $("trace-layer");
+const commentLayer = $("comment-layer");
 const flagLayer = $("flag-layer");
 const idLayer = $("id-layer");
 const uiLayer = $("ui-layer");
@@ -67,7 +69,7 @@ export const app = {
   clipboard: null,
   tool: "select",
   view: { x: 20, y: 20, z: 1 },
-  show: { sheet: true, opacity: 0.55, erase: true, snap: true, grid: true, dims: true, ids: false },
+  show: { sheet: true, opacity: 0.55, erase: true, snap: true, grid: true, dims: true, ids: false, comments: true },
   opts: { thickness: 4, doorWidth: 30, windowWidth: 36, fixtureType: "refrigerator", fixtureRot: 0, labelText: "", anchor: {}, thicknessKeep: "center" },
   drag: null,
   draft: null,
@@ -225,6 +227,7 @@ export function setState(state, { selectRef = true } = {}) {
   renderFiles(app);
   renderProps(app);
   renderFlagsPanel();
+  renderCommentsPanel();
   if (state.saved) {
     const warn = state.saved.warnings.length ? ` (${state.saved.warnings.join("; ")})` : "";
     message(`Saved ${state.saved.files.join(", ")}${warn}`);
@@ -361,11 +364,12 @@ export function selectAll() {
 
 function afterSelect() {
   markSelected();
-  renderFlags();
+  renderMarkers();
   renderIds();
   renderUI();
   renderProps(app);
   renderFlagsPanel();
+  renderCommentsPanel();
 }
 
 function markSelected() {
@@ -415,7 +419,7 @@ function doorwayEntries() {
 }
 
 /** Bounding box of one object in sheet pixels. */
-function keyBox(key) {
+export function keyBox(key) {
   if (key.startsWith("flags:")) {
     const f = getFlag(key.slice(6));
     if (!f) return null;
@@ -535,7 +539,8 @@ export function renderTrace() {
     .join("");
 }
 
-function renderFlags() {
+function renderMarkers() {
+  commentLayer.innerHTML = commentsMarkup();
   flagLayer.innerHTML = flagsMarkup();
 }
 
@@ -589,7 +594,7 @@ export function applyView() {
   const v = app.view;
   world.setAttribute("transform", `translate(${v.x} ${v.y}) scale(${v.z})`);
   $("status-zoom").textContent = `${Math.round(v.z * 100)}%`;
-  renderFlags();
+  renderMarkers();
   renderIds();
   renderUI();
 }
@@ -1729,6 +1734,15 @@ svg.addEventListener("pointerdown", async (e) => {
     if (f) app.drag = { type: "flag-move", id: f.id, el: flagEl, orig: [...f.px], start: toWorld(e), dx: 0, dy: 0, moved: false };
     return;
   }
+  const tagEl = e.target.closest && e.target.closest("g.comment-tag");
+  if (tagEl && app.tool === "select") {
+    if (e.shiftKey || e.ctrlKey) select(tagEl.dataset.key, { toggle: true });
+    else {
+      select(tagEl.dataset.key);
+      revealComments();
+    }
+    return;
+  }
   if (app.tool !== "select") {
     await toolDown(e);
     renderUI();
@@ -1995,6 +2009,10 @@ $("show-dims").addEventListener("change", (e) => {
 $("show-ids").addEventListener("change", (e) => {
   app.show.ids = e.target.checked;
   renderIds();
+});
+$("show-comments").addEventListener("change", (e) => {
+  app.show.comments = e.target.checked;
+  renderMarkers();
 });
 $("snap").addEventListener("change", (e) => (app.show.snap = e.target.checked));
 $("grid").addEventListener("change", (e) => (app.show.grid = e.target.checked));

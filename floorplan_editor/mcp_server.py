@@ -28,7 +28,7 @@ from PIL import Image as PILImage
 
 from .engine.analyze import object_box, union_box
 from .engine.geometry import along, distance_to_wall, format_length, project, wall_length
-from .engine.model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS
+from .engine.model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS, comments_of
 
 URL = os.environ.get("FLOORPLAN_URL", "http://127.0.0.1:8765").rstrip("/")
 LOG = Path(tempfile.gettempdir()) / "floorplan-editor.log"
@@ -55,7 +55,11 @@ mcp = FastMCP(
         "bars that are one thick wall; find_stray_bits finds traced letters; set_wall_thickness sets "
         "thickness keeping a chosen face. Edits stay in memory until save; save mode 'step' writes the "
         "next plan-stepN.json. The user's browser, if open, updates live. Mark a flag done with "
-        "update_flag once it's handled."
+        "update_flag once it's handled. "
+        "Objects can carry comments (c1, c2, ...) that the user or you wrote about them; they live in "
+        "the plan with their object. list_comments reads them (all, or on given objects or the "
+        "selection); add_comment, update_comment, and delete_comments change them. When the user asks "
+        "what's noted on something, or to handle the comments, call list_comments."
     ),
 )
 
@@ -149,6 +153,9 @@ def _summary(state: dict, **extra) -> dict:
     open_flags = [f["id"] for f in state.get("flags") or [] if not f.get("done")]
     if open_flags:
         out["open_flags"] = open_flags
+    comments = sum(1 for _ in comments_of(plan)) if plan else 0
+    if comments:
+        out["comments"] = comments
     if state.get("errors"):
         out["errors"] = state["errors"][:20]
     if state.get("saved"):
@@ -561,6 +568,41 @@ def draw_ids(
     return n
 
 
+COMMENT_RGB = (106, 27, 154)
+
+
+def draw_comments(image: PILImage.Image, plan: dict, crop: tuple[int, int, int, int], text_px: float) -> int:
+    """Tag each commented object at its top right with its comment ids. Returns how many objects."""
+    from PIL import ImageDraw, ImageFont
+
+    draw = ImageDraw.Draw(image)
+    try:
+        font = ImageFont.load_default(size=max(8, round(text_px)))
+    except TypeError:
+        font = ImageFont.load_default()
+    canvas = plan["canvas"]
+    scale, (ox, oy) = float(canvas["px_per_inch"]), canvas["origin_px"]
+    tagged: dict[tuple[str, Any], list[str]] = {}
+    owners: dict[tuple[str, Any], dict] = {}
+    for kind, ref, obj, comment in comments_of(plan):
+        tagged.setdefault((kind, ref), []).append(str(comment.get("id")))
+        owners[(kind, ref)] = obj
+    n = 0
+    for (kind, ref), ids in tagged.items():
+        box = object_box(plan, kind, owners[(kind, ref)])
+        if box is None:
+            continue
+        x, y = ox + box[2] * scale, oy + box[1] * scale
+        if not (crop[0] <= x <= crop[2] and crop[1] <= y <= crop[3]):
+            continue
+        text = ", ".join(ids)
+        left, top, right, bottom = draw.textbbox((x, y), text, font=font, anchor="lb")
+        draw.rectangle([left - 3, top - 2, right + 3, bottom + 2], fill=COMMENT_RGB)
+        draw.text((x, y), text, fill=(255, 255, 255), font=font, anchor="lb")
+        n += 1
+    return n
+
+
 @mcp.tool()
 def view_image(
     source: Literal["overlay", "sheet", "plan", "file"] = "overlay",
@@ -571,6 +613,7 @@ def view_image(
     max_px: int = 1200,
     erase: bool = True,
     show_flags: bool = True,
+    show_comments: bool = True,
     label_ids: bool | None = None,
     highlight: list[str] | None = None,
     show_selection: bool = True,
@@ -584,6 +627,7 @@ def view_image(
       are enlarged so details are readable.
     flag: crop around a flag (F3), or the box it marks, with 36" of room unless padding is larger.
     show_flags: draw the user's flags as orange numbered pins (gray once done).
+    show_comments: tag commented objects at their top right with their comment ids, in purple.
     label_ids: write each object's id on it, so you can name objects in later calls. On by default
       when cropping (region or flag), off for the whole sheet.
     highlight: ids (or kind:id keys) to outline in blue. show_selection also outlines whatever the
@@ -642,6 +686,10 @@ def view_image(
             caption += f", {n} ids labeled"
         if marked:
             caption += f", outlined in blue: {', '.join(sorted(marked))}"
+    if plan and show_comments:
+        n = draw_comments(image, plan, crop, 11 / factor)
+        if n:
+            caption += f", comment tags in purple on {n} objects"
     if region:
         image = image.crop(crop)
     longest = max(image.width, image.height)
@@ -920,10 +968,12 @@ Operations (each a dict with "op"):
 - set_wall_thickness: {"op":"set_wall_thickness","ids":[...],"thickness":6,"keep":"center"|"up"|"down"|"left"|"right"}
 - convert: {"op":"convert","items":[[K,ID],...],"to":"wall"|"door"|"window"|"fixture"|"counter"|"outline"|"label"|"erase",
   "type":fixture type,"rot":..,"text":label,"wall":host,"width":..,"keep":false} (see convert_objects).
+- add_comment: {"op":"add_comment","kind":K,"id":ID,"text":..,"by":"cursor"};
+  update_comment: {"op":"update_comment","comment":"c3","text":..,"to":[K,ID]}; delete_comments: {"op":"delete_comments","comments":["c3"]}
 Object fields: walls {id,x1,y1,x2,y2,thickness}; openings {id,wall,type:door|window,offset,width,
 hinge:start|end,swing:cw|ccw}; counters {id,x,y,w,h,overhang?:{edge,inches}} or {id,points:[[x,y],...]};
 fixtures {id,type,x,y,w,h,rot?} (x,y is the center; rot turns clockwise); labels {text,x,y,size_px?};
-erase {id,x,y,w,h}. Fixture types: refrigerator, range, oven, dishwasher, toilet, tub, soaking_tub,
+erase {id,x,y,w,h}. Any object may also have comments [{id,text,by,created,edited?}]. Fixture types: refrigerator, range, oven, dishwasher, toilet, tub, soaking_tub,
 sink, washer, dryer, washer_dryer, stool, generic.
 """
 
@@ -1261,6 +1311,104 @@ def delete_flags(ids: list[str] | None = None, all_done: bool = False) -> dict:
     else:
         raise ToolError("give ids or all_done=true")
     return {"remaining": [f["id"] for f in state.get("flags") or []]}
+
+
+# ---------------------------------------------------------------- comments
+
+
+def _comment_view(plan: dict, kind: str, ref, obj: dict, comment: dict) -> dict:
+    out = {k: comment[k] for k in ("id", "text", "by", "created", "edited") if k in comment}
+    out["on"] = {"kind": kind, "id": ref, "what": describe(plan, kind, obj)}
+    return out
+
+
+def _find_comment(plan: dict, comment_id: str) -> dict:
+    wanted = str(comment_id).strip().lower()
+    for kind, ref, obj, comment in comments_of(plan):
+        if str(comment.get("id")).lower() == wanted:
+            return _comment_view(plan, kind, ref, obj, comment)
+    raise ToolError(f"no comment {comment_id!r}")
+
+
+def _one_object(plan: dict, on: str | None, use_selection: bool) -> list:
+    items = _items_for(plan, [on] if on else None, use_selection)
+    if len(items) != 1:
+        raise ToolError(f"a comment goes on one object; {len(items)} are selected")
+    return items[0]
+
+
+@mcp.tool()
+def list_comments(
+    on: list[str] | None = None,
+    use_selection: bool = False,
+    ids: list[str] | None = None,
+    text: str | None = None,
+    by: str | None = None,
+) -> dict:
+    """Comments attached to objects in the open plan: each comment's id (c1, c2, ...), text, author
+    (user or cursor), created and edited times, and the object it's on (kind, id, description).
+
+    on: only comments on these objects (w12, toilet-1, labels:3). use_selection: only comments on what
+    the user has selected. ids: these comment ids. text: comments containing these words. by: 'user'
+    or 'cursor'. With no filters, every comment in the plan."""
+    plan = _open_plan()
+    keys = None
+    if on or use_selection:
+        keys = {(k, i) for k, i in _items_for(plan, on, use_selection)}
+    wanted = {str(i).lower() for i in ids} if ids else None
+    out = []
+    for kind, ref, obj, comment in comments_of(plan):
+        if keys is not None and (kind, ref) not in keys:
+            continue
+        if wanted is not None and str(comment.get("id")).lower() not in wanted:
+            continue
+        if text and text.lower() not in str(comment.get("text", "")).lower():
+            continue
+        if by and comment.get("by") != by:
+            continue
+        out.append(_comment_view(plan, kind, ref, obj, comment))
+    return {"count": len(out), "comments": out}
+
+
+@mcp.tool()
+def add_comment(text: str, on: str | None = None, use_selection: bool = False) -> dict:
+    """Attach a comment to one object: `on` names it (w12, toilet-1, labels:3), or use_selection for the
+    one object the user has selected. The comment shows in the user's editor, marked as from Cursor.
+    Comments are part of the plan: they move, merge, and convert with their object, are deleted with
+    it, and are undoable. Like other edits they stay in memory until save."""
+    plan = _open_plan()
+    kind, ref = _one_object(plan, on, use_selection)
+    summary = _op({"op": "add_comment", "kind": kind, "id": ref, "text": text, "by": "cursor"}, f"commented on {ref}")
+    after = _open_plan()
+    obj = _lookup(after, kind, ref)
+    summary["comment"] = _comment_view(after, kind, ref, obj, obj["comments"][-1])
+    return summary
+
+
+@mcp.tool()
+def update_comment(comment_id: str, text: str | None = None, move_to: str | None = None) -> dict:
+    """Change a comment's text, or move it to another object (move_to: w12, toilet-1, labels:3)."""
+    if text is None and not move_to:
+        raise ToolError("give text or move_to")
+    plan = _open_plan()
+    op: dict[str, Any] = {"op": "update_comment", "comment": comment_id}
+    if text is not None:
+        op["text"] = text
+    if move_to:
+        op["to"] = resolve(plan, [move_to])[0]
+    summary = _op(op, f"updated comment {comment_id}")
+    summary["comment"] = _find_comment(_open_plan(), comment_id)
+    return summary
+
+
+@mcp.tool()
+def delete_comments(ids: list[str]) -> dict:
+    """Delete comments by id (c1, c2, ...), as one undo step."""
+    if not ids:
+        raise ToolError("ids is empty")
+    summary = _op({"op": "delete_comments", "comments": ids}, f"deleted comment{'s' if len(ids) > 1 else ''} {', '.join(ids)}")
+    summary["deleted"] = ids
+    return summary
 
 
 # ---------------------------------------------------------------- the browser

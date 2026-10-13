@@ -260,6 +260,33 @@ The **Flags** section of the side panel lists them. Click a number to zoom to it
 it done, ⧉ to copy a one-line reference to paste into a chat, and × to remove it. **Copy
 open flags for Cursor** copies them all at once. Drag a pin to move it.
 
+### Comments on objects
+
+Select any one object (a wall, door, counter, fixture, label, or erase region) and press
+**Ctrl+/**, or click **Comment…** on its action bar or **Add a comment…** in its
+properties. Type the comment and press Enter. Each comment gets an id (`c1`, `c2`, ...), and
+the object gets a purple bubble showing how many comments it has. Click a bubble to select
+the object and read its comments in the side panel, where you can **Edit** or **Delete**
+each one (clearing the text also deletes it). The **Comments** section of the side panel
+lists every comment in the plan; click an object's name to zoom to it. **Comment markers**
+in the View section hides the bubbles.
+
+Comments belong to their object and are saved in the plan file with it:
+
+- They move when the object moves.
+- Merging walls or converting pieces moves the comments onto the result.
+- Deleting an object deletes its comments.
+- Duplicates, pasted copies, and the new half of a split wall start without comments.
+- Adding, editing, and deleting a comment are edits like any other: Ctrl+Z undoes them,
+  and they need a save.
+- When steps are merged, comments merge on their own, so one step commenting on a wall
+  while another moves it is fine.
+
+Cursor sees comments too. It can list them (all of them, or the ones on particular
+objects or on your selection), add its own (marked "Cursor"), edit, move, and delete them.
+Use flags to point at a place for a task you'll mark done; use comments for lasting notes
+about a thing.
+
 ### Steps and merging
 
 Treat `plan.json` as the drawing as it exists today, and save each idea as a step.
@@ -328,6 +355,7 @@ Ctrl+K shows all of these, searchable.
 | R | Rotate the selected fixture 90° (Shift+R the other way), or the next fixture to place |
 | S, H | Flip the selected door's swing or hinge side |
 | Shift+F | Flag the selection |
+| Ctrl+/ | Comment on the selected object |
 | Shift+C | Convert the selection to a wall, door, window, fixture, counter, label, or erase region |
 | J, Shift+J | Merge the selected walls into one; merge every group of stacked walls |
 | Shift+T | Set the selected walls' thickness |
@@ -358,7 +386,8 @@ is unique across the whole plan.
   "compass": { "up": "north", "right": "east", "down": "south", "left": "west" },
   "canvas": { "width_px": 1024, "height_px": 640, "px_per_inch": 1.0, "origin_px": [0, 0] },
   "walls": [
-    { "id": "w1", "x1": 0, "y1": 0, "x2": 240, "y2": 0, "thickness": 5 }
+    { "id": "w1", "x1": 0, "y1": 0, "x2": 240, "y2": 0, "thickness": 5,
+      "comments": [{ "id": "c1", "text": "Shaft wall; check the thickness.", "by": "user", "created": "2026-10-13T15:21:33+00:00" }] }
   ],
   "openings": [
     { "id": "door-1", "wall": "w1", "type": "door", "offset": 30, "width": 32, "hinge": "start", "swing": "ccw" },
@@ -395,6 +424,9 @@ is unique across the whole plan.
 - **labels** are text centered at `x`, `y`. `size_px` is the font size on the sheet.
 - **erase** regions are boxes that white out the sheet under them in the editor and in
   overlays.
+- **comments** can be added to any object. Each has an `id` (unique across the plan), `text`,
+  and optionally `by` (`user` or `cursor`), `created`, and `edited` (ISO times). They aren't
+  drawn in saved pictures.
 
 ## Driving the editor from Cursor (MCP)
 
@@ -429,7 +461,8 @@ browser and say "do what F1 and F2 say." The tools:
 | Editor | `editor_status`, `start_editor` (starts `floorplan serve` in the background if needed, or switches folders), `stop_editor` |
 | Files and images | `open_anything` (a plan, folder, or image, recognized the same way as the browser's Open), `open_plan` (a name in the folder, or any plan JSON on disk), `import_file` (copy a plan or a sheet image into the folder), `new_plan_from_image` (with optional auto-trace) |
 | Flags | `list_flags` (each flag's note, place, and what it sits on or near), `add_flag`, `update_flag` (note, done, position), `delete_flags` |
-| Looking | `view_image` (overlay, sheet, plan alone, or any PNG in the folder, cropped to a region in inches or around a flag, with flags drawn on; crops label every object's id, and `highlight` or the user's selection is outlined in blue), `get_plan`, `find_objects` (by position, region, type, or text), `get_objects` (full objects by id) |
+| Comments | `list_comments` (all, or filtered by objects, the selection, comment ids, text, or author; each with the object it's on), `add_comment` (on one object, or the one selected), `update_comment` (text, or move it to another object), `delete_comments` |
+| Looking | `view_image` (overlay, sheet, plan alone, or any PNG in the folder, cropped to a region in inches or around a flag, with flags drawn on and commented objects tagged with their comment ids in purple; crops label every object's id, and `highlight` or the user's selection is outlined in blue), `get_plan`, `find_objects` (by position, region, type, or text), `get_objects` (full objects by id) |
 | What you selected | `get_selection` (the objects selected in the browser, their box, and whether the walls run the same way); `control_browser` with `ids` selects objects for you to look at |
 | Cleaning up a trace | `convert_objects` (ids or the selection into a wall, door, window, fixture, counter, outline, label, or erase region), `merge_walls`, `set_wall_thickness` (with the face that stays put), `find_stacked_walls` (and `apply` to merge them), `find_stray_bits` (and `delete`) |
 | Editing | `add_object`, `update_object`, `delete_objects`, `move_object`, `move_wall_end`, `split_wall`, `edit_counter_outline`, `flip_door`, `rotate_fixture`, `set_plan_properties` (name, notes, compass, scale), `trace_walls` (merging stacked bars unless `merge_stacked` is off), and `apply_ops` for any batch of edit operations as one undo step |

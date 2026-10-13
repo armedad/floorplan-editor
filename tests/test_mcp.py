@@ -207,6 +207,46 @@ def test_flags_round_trip(live, sample_folder):
     assert json.loads((sample_folder / "flags.json").read_text())["next"] == 4
 
 
+def test_comments_round_trip(live, sample_folder):
+    added = m.add_comment("is this a column or a chase?", on="column")
+    first = added["comment"]
+    assert first["id"] == "c1" and first["by"] == "cursor" and first["on"]["id"] == "column" and added["dirty"]
+    assert m.editor_status()["comments"] == 1
+
+    with httpx.Client(base_url=live) as client:
+        client.post("/api/selection", json={"keys": ["labels:2"]})
+    second = m.add_comment("call it PRIMARY", use_selection=True)["comment"]
+    assert second["id"] == "c2" and (second["on"]["kind"], second["on"]["id"]) == ("labels", 2)
+    assert "BEDROOM" in second["on"]["what"]
+    with httpx.Client(base_url=live) as client:
+        client.post("/api/selection", json={"keys": ["labels:2", "walls:column"]})
+    with pytest.raises(m.ToolError, match="one object"):
+        m.add_comment("x", use_selection=True)
+
+    assert m.list_comments()["count"] == 2
+    assert [c["id"] for c in m.list_comments(on=["column"])["comments"]] == ["c1"]
+    assert [c["id"] for c in m.list_comments(use_selection=True)["comments"]] == ["c1", "c2"]
+    assert [c["id"] for c in m.list_comments(text="primary")["comments"]] == ["c2"]
+    assert m.list_comments(by="user")["count"] == 0 and m.list_comments(ids=["C2"])["count"] == 1
+    assert m.get_objects(["column"])["objects"][0]["object"]["comments"][0]["text"] == "is this a column or a chase?"
+
+    edited = m.update_comment("c1", text="it's a chase", move_to="ext-n")["comment"]
+    assert edited["text"] == "it's a chase" and edited["edited"] and edited["on"]["id"] == "ext-n"
+    _, caption = m.view_image("plan")
+    assert "comment tags in purple on 2 objects" in caption
+
+    m.save()
+    saved = json.loads((sample_folder / "plan.json").read_text())
+    assert next(w for w in saved["walls"] if w["id"] == "ext-n")["comments"][0]["id"] == "c1"
+
+    assert m.delete_comments(["c1", "c2"])["deleted"] == ["c1", "c2"]
+    assert m.list_comments()["count"] == 0
+    m.undo()
+    assert m.list_comments()["count"] == 2
+    with pytest.raises(m.ToolError, match="no comment"):
+        m.update_comment("c9", text="x")
+
+
 def test_selection_and_analysis_endpoints(client):
     assert client.post("/api/selection", json={"keys": ["walls:column", "labels:1", "walls:gone"]}).json()["keys"]
     selected = client.get("/api/selection").json()

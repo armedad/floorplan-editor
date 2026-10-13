@@ -39,6 +39,7 @@ FIXTURE_LABELS = {
 }
 ID_KEYS = ("walls", "openings", "counters", "fixtures", "erase")
 LIST_KEYS = ID_KEYS + ("labels",)
+COMMENTED = {"comments"}
 
 
 class PlanError(Exception):
@@ -92,6 +93,47 @@ def _fields(obj: dict, required: set[str], optional: set[str], path: str, errors
         errors.append(f"{path}.{key} is required")
     for key in sorted(extra):
         errors.append(f"{path}.{key} is not a field")
+
+
+def comments_of(plan: dict):
+    """Every comment in the plan as (kind, ref, object, comment); ref is a label's index."""
+    for kind in LIST_KEYS:
+        for index, obj in enumerate(plan.get(kind) or []):
+            if not isinstance(obj, dict) or not isinstance(obj.get("comments"), list):
+                continue
+            for comment in obj["comments"]:
+                if isinstance(comment, dict):
+                    yield kind, index if kind == "labels" else obj.get("id"), obj, comment
+
+
+def _check_comments(plan: dict, errors: list[str]) -> None:
+    seen: dict[str, str] = {}
+    for kind in LIST_KEYS:
+        for i, obj in enumerate(plan.get(kind) or []):
+            if not isinstance(obj, dict) or "comments" not in obj:
+                continue
+            path = f"plan.{kind}[{i}].comments"
+            comments = obj["comments"]
+            if not isinstance(comments, list):
+                errors.append(f"{path} must be a list")
+                continue
+            for j, comment in enumerate(comments):
+                cpath = f"{path}[{j}]"
+                if not isinstance(comment, dict):
+                    errors.append(f"{cpath} must be an object")
+                    continue
+                _fields(comment, {"id", "text"}, {"by", "created", "edited"}, cpath, errors)
+                _str(comment.get("text"), f"{cpath}.text", errors)
+                for key in ("by", "created", "edited"):
+                    if key in comment and not isinstance(comment[key], str):
+                        errors.append(f"{cpath}.{key} must be a string")
+                comment_id = _str(comment.get("id"), f"{cpath}.id", errors)
+                if comment_id is None:
+                    continue
+                if comment_id in seen:
+                    errors.append(f"{cpath}.id duplicates {seen[comment_id]}")
+                else:
+                    seen[comment_id] = cpath
 
 
 def compass_ok(compass: dict) -> bool:
@@ -179,7 +221,7 @@ def validate_plan(plan: dict) -> list[str]:
         if not isinstance(wall, dict):
             errors.append(f"{path} must be an object")
             continue
-        _fields(wall, {"id", "x1", "y1", "x2", "y2", "thickness"}, set(), path, errors)
+        _fields(wall, {"id", "x1", "y1", "x2", "y2", "thickness"}, COMMENTED, path, errors)
         wall_id = take_id(wall.get("id"), f"{path}.id")
         coords = [_num(wall.get(k), f"{path}.{k}", errors) for k in ("x1", "y1", "x2", "y2")]
         thickness = _num(wall.get("thickness"), f"{path}.thickness", errors)
@@ -198,7 +240,7 @@ def validate_plan(plan: dict) -> list[str]:
             continue
         kind = opening.get("type")
         optional = {"hinge", "swing"} if kind == "door" else set()
-        _fields(opening, {"id", "wall", "type", "offset", "width"}, optional, path, errors)
+        _fields(opening, {"id", "wall", "type", "offset", "width"}, optional | COMMENTED, path, errors)
         take_id(opening.get("id"), f"{path}.id")
         wall_id = opening.get("wall")
         if wall_id not in wall_by_id:
@@ -234,7 +276,7 @@ def validate_plan(plan: dict) -> list[str]:
             errors.append(f"{path} must be an object")
             continue
         if "points" in counter:
-            _fields(counter, {"id", "points"}, set(), path, errors)
+            _fields(counter, {"id", "points"}, COMMENTED, path, errors)
             take_id(counter.get("id"), f"{path}.id")
             points = counter.get("points")
             if not isinstance(points, list) or len(points) < 3:
@@ -247,7 +289,7 @@ def validate_plan(plan: dict) -> list[str]:
                 _num(point[0], f"{path}.points[{j}][0]", errors)
                 _num(point[1], f"{path}.points[{j}][1]", errors)
             continue
-        _fields(counter, {"id", "x", "y", "w", "h"}, {"overhang"}, path, errors)
+        _fields(counter, {"id", "x", "y", "w", "h"}, {"overhang"} | COMMENTED, path, errors)
         take_id(counter.get("id"), f"{path}.id")
         _box(counter, path, errors)
         if "overhang" in counter:
@@ -267,7 +309,7 @@ def validate_plan(plan: dict) -> list[str]:
         if not isinstance(fixture, dict):
             errors.append(f"{path} must be an object")
             continue
-        _fields(fixture, {"id", "type", "x", "y", "w", "h"}, {"rot"}, path, errors)
+        _fields(fixture, {"id", "type", "x", "y", "w", "h"}, {"rot"} | COMMENTED, path, errors)
         take_id(fixture.get("id"), f"{path}.id")
         if fixture.get("type") not in FIXTURE_TYPES:
             errors.append(f"{path}.type is not a known fixture")
@@ -280,7 +322,7 @@ def validate_plan(plan: dict) -> list[str]:
         if not isinstance(label, dict):
             errors.append(f"{path} must be an object")
             continue
-        _fields(label, {"text", "x", "y"}, {"size_px"}, path, errors)
+        _fields(label, {"text", "x", "y"}, {"size_px"} | COMMENTED, path, errors)
         _str(label.get("text"), f"{path}.text", errors)
         _num(label.get("x"), f"{path}.x", errors)
         _num(label.get("y"), f"{path}.y", errors)
@@ -294,8 +336,9 @@ def validate_plan(plan: dict) -> list[str]:
         if not isinstance(region, dict):
             errors.append(f"{path} must be an object")
             continue
-        _fields(region, {"id", "x", "y", "w", "h"}, set(), path, errors)
+        _fields(region, {"id", "x", "y", "w", "h"}, COMMENTED, path, errors)
         take_id(region.get("id"), f"{path}.id")
         _box(region, path, errors)
 
+    _check_comments(plan, errors)
     return errors

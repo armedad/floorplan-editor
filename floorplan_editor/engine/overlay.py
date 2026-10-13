@@ -30,13 +30,17 @@ def apply_erase_regions(image: Image.Image, plan: dict) -> Image.Image:
     return out
 
 
+def _shape(item: dict | None) -> dict | None:
+    return None if item is None else {k: v for k, v in item.items() if k != "comments"}
+
+
 def removed_objects(original: dict, plan: dict) -> dict:
     """Objects in original that plan deleted or changed, as a plan of their own."""
     removed = {key: [] for key in DRAWN_KEYS}
     for key in DRAWN_KEYS:
         now = {item["id"]: item for item in plan.get(key, [])}
         for item in original.get(key, []):
-            if now.get(item["id"]) != item:
+            if _shape(now.get(item["id"])) != _shape(item):
                 removed[key].append(dict(item))
     gone = {key: removed[key] for key in ("walls", "counters", "fixtures")}
     return {**plan, **gone, "openings": [], "labels": [], "erase": []}

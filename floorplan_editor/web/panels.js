@@ -3,6 +3,7 @@
 import { api, readFileBase64 } from "./api.js";
 import * as E from "./app.js";
 import { COMMANDS, context } from "./commands.js";
+import { commentsBlock } from "./comments.js";
 import { mergeStacked, selectFound } from "./convert.js";
 import { copyAllFlags, copyText, deleteFlags, editFlagNote, flagText, renderFlagsPanel, setFlagDone, zoomToFlag } from "./flags.js";
 import { formatLength, parseLength, round2, wallAngle, wallFrame } from "./geom.js";
@@ -494,6 +495,7 @@ export function renderProps(appRef, extraErrors = null) {
   } else items = planProps(plan);
   $("props-title").textContent = title;
   box.append(...items.flat().filter(Boolean));
+  if (info.n === 1 && info.planKeys.length === 1 && info.obj) box.append(commentsBlock(info.single));
   if (info.n && info.planKeys.length) box.append(actionsRow());
   const errors = extraErrors || (app.state && app.state.errors) || [];
   if (errors.length) {

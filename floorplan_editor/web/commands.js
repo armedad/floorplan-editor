@@ -2,6 +2,7 @@
 // action bar over the selection all read this list, so new actions belong here, not in one of them.
 
 import * as E from "./app.js";
+import { addComment } from "./comments.js";
 import { mergeSelectedWalls, mergeStacked, selectFound, showConvertMenu, thicknessSelection } from "./convert.js";
 import { copyAllFlags, copyText, editFlagNote, flagList, flagText, getFlag, setFlagDone } from "./flags.js";
 import { openPicker, showOpenMenu } from "./open.js";
@@ -80,6 +81,7 @@ export const COMMANDS = [
   { id: "copy", group: "Edit", label: "Copy", keys: ["Ctrl+C"], when: (c) => c.n > 0, run: () => (onlyFlags(E.selectionInfo()) ? copySelectedFlags() : E.copySelection()) },
   { id: "copy-ids", group: "Edit", label: "Copy the selection's ids for Cursor", keys: ["Ctrl+Shift+C"], when: (c) => c.planKeys.length > 0, run: () => copySelectedIds() },
   { id: "paste", group: "Edit", label: "Paste at the pointer", keys: ["Ctrl+V"], when: (c) => c.plan && c.clipboard, run: () => E.pasteClipboard() },
+  { id: "comment", group: "Comments", label: "Comment on it…", barLabel: () => "Comment…", keys: ["Ctrl+/"], bar: true, when: (c) => c.n === 1 && c.planKeys.length === 1, run: () => addComment() },
   { id: "flag-selection", group: "Flags", label: "Flag the selection", barLabel: () => "Flag", keys: ["Shift+F"], bar: true, when: (c) => c.planKeys.length > 0, run: () => E.flagSelection() },
   { id: "delete", group: "Edit", label: "Delete", barLabel: () => "Delete", keys: ["Delete", "Backspace"], bar: true, danger: true, when: (c) => c.n > 0, run: () => E.deleteSelection() },
 
@@ -102,6 +104,7 @@ export const COMMANDS = [
   { id: "flags-copy-all", group: "Flags", label: "Copy all open flags for Cursor", when: (c) => c.flags > 0, run: () => copyAllFlags() },
   { id: "flags-clear", group: "Flags", label: "Remove done flags", when: (c) => c.doneFlags > 0, run: () => E.call("/api/flags", { action: "clear_done" }, { selectRef: false }) },
   { id: "flags-panel", group: "Flags", label: "Show the flag list", run: () => showPanel("flags-panel") },
+  { id: "comments-panel", group: "Comments", label: "Show every comment in the plan", when: (c) => c.plan, run: () => showPanel("comments-panel") },
 
   // Tools
   ...TOOLS.map(([tool, label, key]) => ({ id: `tool-${tool}`, group: "Tools", label, keys: [key], when: (c) => c.plan, run: () => E.setTool(tool) })),
@@ -115,6 +118,7 @@ export const COMMANDS = [
   { id: "toggle-sheet", group: "View", label: "Show or hide the sheet image", run: () => E.toggleView("show-sheet") },
   { id: "toggle-dims", group: "View", label: "Show or hide measurements on the selection", keys: ["Shift+D"], run: () => E.toggleView("show-dims") },
   { id: "toggle-ids", group: "View", label: "Show or hide object ids on the drawing", keys: ["I"], when: (c) => c.plan, run: () => E.toggleView("show-ids") },
+  { id: "toggle-comments", group: "View", label: "Show or hide comment markers", run: () => E.toggleView("show-comments") },
   { id: "toggle-erase", group: "View", label: "Show or hide erase regions", run: () => E.toggleView("show-erase") },
   { id: "toggle-snap", group: "View", label: "Snap to corners and walls on or off", run: () => E.toggleView("snap") },
   { id: "toggle-grid", group: "View", label: "Snap to the 1\" grid on or off", run: () => E.toggleView("grid") },

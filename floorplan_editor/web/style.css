@@ -530,6 +530,81 @@ dialog label {
   word-break: break-word;
 }
 
+/* comments */
+.comment-tag {
+  cursor: pointer;
+}
+.comment-tag rect,
+.comment-tag path {
+  fill: #6a1b9a;
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+.comment-tag text {
+  font: 700 10px "Segoe UI", system-ui, sans-serif;
+  fill: #fff;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  user-select: none;
+}
+.comment-tag.selected rect {
+  stroke: #0d47a1;
+  stroke-width: 2.5;
+}
+.comments {
+  margin: 12px 0 4px;
+  border-top: 1px solid #e3e7eb;
+  padding-top: 8px;
+}
+.comments h3 {
+  font-size: 12px;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6a1b9a;
+}
+.comment-list,
+#comments-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+#comments-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.comment-item {
+  border-left: 3px solid #6a1b9a;
+  background: #f8f3fb;
+  border-radius: 0 4px 4px 0;
+  padding: 5px 8px;
+  margin-bottom: 6px;
+}
+#comments-list .comment-item.selected {
+  background: #efe3f6;
+}
+.comment-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.comment-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: #6a737d;
+}
+.comment-actions {
+  display: flex;
+  gap: 10px;
+}
+.comment-on {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
 /* flags */
 .flag-tool.active,
 button.flag-tool:hover {
