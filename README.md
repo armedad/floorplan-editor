@@ -242,6 +242,50 @@ is unique across the whole plan.
 - **erase** regions are boxes that white out the sheet under them in the editor and in
   overlays.
 
+## Driving the editor from Cursor (MCP)
+
+`floorplan mcp` is an [MCP](https://modelcontextprotocol.io) server that gives Cursor (or
+any MCP client) full control of the editor. It talks to the running editor's API, so
+Cursor's edits land in the same document your browser shows. An open browser updates
+live: the plan redraws, the object Cursor touched is selected, and the status bar says
+what Cursor did.
+
+Add it to `~/.cursor/mcp.json` (on Chee's machine it's already there):
+
+```json
+{
+  "mcpServers": {
+    "floorplan-editor": {
+      "command": "C:\\Users\\CheeC\\code\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "floorplan_editor", "mcp"]
+    }
+  }
+}
+```
+
+With your own venv, point `command` at that venv's Python. To use a port other than
+8765, add `"env": { "FLOORPLAN_URL": "http://127.0.0.1:9000" }`.
+
+Then ask Cursor things like "open the editor on C:\plans\39C, delete the tub's front
+wall, put a toilet there facing east, and save it as a step." The tools:
+
+| Area | Tools |
+| --- | --- |
+| Editor | `editor_status`, `start_editor` (starts `floorplan serve` in the background if needed, or switches folders), `stop_editor` |
+| Files and images | `open_plan` (a name in the folder, or any plan JSON on disk), `import_file` (copy a plan or a sheet image into the folder), `new_plan_from_image` (with optional auto-trace) |
+| Looking | `view_image` (overlay, sheet, plan alone, or any PNG in the folder, cropped to a region in inches), `get_plan`, `find_objects` (by position, region, type, or text) |
+| Editing | `add_object`, `update_object`, `delete_objects`, `move_object`, `move_wall_end`, `split_wall`, `edit_counter_outline`, `flip_door`, `rotate_fixture`, `set_plan_properties` (name, notes, compass, scale), `trace_walls`, and `apply_ops` for any batch of edit operations as one undo step |
+| History and saving | `undo`, `redo`, `revert`, `save` (overwrite, next step, or a new name), `merge_steps` |
+| The page | `control_browser`: open the page, select, zoom to an object or region, fit, switch tools, toggle the sheet, erase regions, snapping, grid, and side panel, or show a message |
+
+Edits stay in memory until a save, just like in the browser. Tools that would throw away
+unsaved edits (opening another file or folder, reverting, stopping) refuse unless you
+pass `discard_unsaved`. Saving over `plan.json` while steps exist needs
+`confirm_overwrite_base`.
+
+`start_editor` runs the editor as its own background process; `stop_editor` ends it. Its
+output goes to `floorplan-editor.log` in your temp folder.
+
 ## Command line
 
 The same engine is available without the browser:
@@ -253,6 +297,7 @@ floorplan overlay plan.json sheet.jpg [--out FILE] [--erase-from plan.json]
 floorplan merge plan.json plan-step1.json plan-step2.json --out plan-merged.json
 floorplan trace sheet.jpg --out plan.json --px-per-inch 1.03 --up south
 floorplan serve [FOLDER] [--sheet IMAGE] [--port 8765] [--no-browser]
+floorplan mcp
 ```
 
 `overlay --erase-from` takes the traced base plan and whites out the sheet wherever the
@@ -268,7 +313,9 @@ C:\Users\CheeC\code\.venv\Scripts\python.exe -m pytest
 
 - The engine lives in `floorplan_editor/engine`: schema, rendering, overlays, merging,
   edit operations, step folders, and tracing.
-- The FastAPI server is `floorplan_editor/server/app.py`.
+- The FastAPI server is `floorplan_editor/server/app.py`. `/api/events` streams changes and
+  UI commands to open browsers.
+- The MCP server is `floorplan_editor/mcp_server.py`.
 - The browser editor is plain JavaScript modules in `floorplan_editor/web`, with no build
   step.
 

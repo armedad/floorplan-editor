@@ -80,6 +80,9 @@ export const app = {
   traceWalls: null,
   spaceDown: false,
   busy: false,
+  syncing: false,
+  serverVersion: 0,
+  uiQueue: [],
 };
 
 // ---------------------------------------------------------------- server calls
@@ -103,7 +106,91 @@ export async function call(path, body, extra = {}) {
     return null;
   } finally {
     app.busy = false;
+    syncFromServer();
   }
+}
+
+// Other clients (Cursor through the MCP server) change the same document. The server
+// streams its version and UI commands; catch up between our own requests and drags.
+async function syncFromServer() {
+  if (app.drag || app.busy || app.syncing) return;
+  if (app.state && app.state.version >= app.serverVersion) return drainUi();
+  app.syncing = true;
+  try {
+    const before = app.state;
+    const state = await api("/api/state");
+    setState(state, { selectRef: false });
+    if (before && (before.file !== state.file || before.folder !== state.folder)) {
+      message(`Opened ${state.file || state.folder} from another client.`);
+    }
+  } catch (err) {
+    message(err.message, true);
+  } finally {
+    app.syncing = false;
+  }
+  syncFromServer();
+}
+
+function drainUi() {
+  while (app.uiQueue.length) runUiCommand(app.uiQueue.shift());
+}
+
+function runUiCommand(cmd) {
+  const set = (id, value) => {
+    if (value === undefined || value === null) return;
+    const el = $(id);
+    if (el.type === "checkbox") el.checked = !!value;
+    else el.value = value;
+    el.dispatchEvent(new Event(el.type === "checkbox" ? "change" : "input"));
+  };
+  switch (cmd.action) {
+    case "select":
+      select(cmd.key && getObject(cmd.key) ? cmd.key : null);
+      if (cmd.zoom && app.sel) zoomToSelection();
+      break;
+    case "zoom":
+      if (cmd.key && getObject(cmd.key)) {
+        select(cmd.key);
+        zoomToSelection();
+      } else if (cmd.box && app.canvas) {
+        const [x0, y0] = app.canvas.pt(cmd.box[0], cmd.box[1]);
+        const [x1, y1] = app.canvas.pt(cmd.box[2], cmd.box[3]);
+        zoomToBox([Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)]);
+      }
+      break;
+    case "fit":
+      fitView();
+      break;
+    case "tool":
+      if (TOOL_HINTS[cmd.tool]) setTool(cmd.tool);
+      break;
+    case "view":
+      set("show-sheet", cmd.sheet);
+      set("show-erase", cmd.erase);
+      set("snap", cmd.snap);
+      set("grid", cmd.grid);
+      set("sheet-opacity", cmd.opacity);
+      if (cmd.panel !== undefined && cmd.panel === document.body.classList.contains("side-hidden")) toggleSide();
+      break;
+    case "message":
+      message(cmd.text || "", !!cmd.error);
+      break;
+    case "reload":
+      location.reload();
+      break;
+  }
+}
+
+function followServer() {
+  const events = new EventSource("/api/events");
+  events.addEventListener("state", (e) => {
+    app.serverVersion = JSON.parse(e.data).version;
+    syncFromServer();
+  });
+  events.addEventListener("ui", (e) => {
+    app.uiQueue.push(JSON.parse(e.data));
+    syncFromServer();
+  });
 }
 
 export async function send(op, { selectRef = true } = {}) {
@@ -248,7 +335,7 @@ function renderSheet() {
     sheetEl.style.display = "none";
     return;
   }
-  const key = `${s.folder}|${s.sheet.name}|${JSON.stringify(app.plan ? app.plan.erase || [] : [])}|${app.plan ? JSON.stringify(app.plan.canvas) : ""}`;
+  const key = `${s.folder}|${s.sheet.name}|${s.sheet.mtime}|${JSON.stringify(app.plan ? app.plan.erase || [] : [])}|${app.plan ? JSON.stringify(app.plan.canvas) : ""}`;
   if (key !== app.sheetKey) {
     app.sheetKey = key;
     app.sheetVersion += 1;
@@ -949,6 +1036,7 @@ window.addEventListener("pointerup", async (e) => {
   else if (d.type === "handle") await handleUp(e);
   else if (d.type === "rect") await rectUp();
   renderUI();
+  syncFromServer();
 });
 
 svg.addEventListener("dblclick", async (e) => {
@@ -1016,7 +1104,10 @@ function zoomBy(factor) {
 function zoomToSelection() {
   const entry = app.sel && app.objects.get(app.sel);
   if (!entry) return message("Select something first; Z zooms to it.", true);
-  const [x0, y0, x1, y1] = entry.box;
+  zoomToBox(entry.box);
+}
+
+function zoomToBox([x0, y0, x1, y1]) {
   const rect = svg.getBoundingClientRect();
   const fit = Math.min((rect.width - 80) / Math.max(x1 - x0, 1), (rect.height - 80) / Math.max(y1 - y0, 1));
   const z = Math.max(0.05, Math.min(4, fit));
@@ -1178,5 +1269,8 @@ app.show.opacity = Number($("sheet-opacity").value);
 initPanels(app, { call, send, setState, select, setTool, message, save, deleteSelection, rotateSelection, flipDoor, fitView, renderTrace, getObject, splitKey });
 setTool("select");
 api("/api/state")
-  .then((state) => setState(state))
+  .then((state) => {
+    setState(state);
+    followServer();
+  })
   .catch((err) => message(err.message, true));

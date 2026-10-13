@@ -1,4 +1,4 @@
-"""Command line: validate, render, overlay, merge, trace, serve."""
+"""Command line: validate, render, overlay, merge, trace, serve, mcp."""
 
 from __future__ import annotations
 
@@ -108,8 +108,15 @@ def main(argv: list[str] | None = None) -> int:
     serve_cmd.add_argument("--port", type=int, default=8765)
     serve_cmd.add_argument("--no-browser", action="store_true")
 
+    sub.add_parser("mcp", help="run the MCP server (stdio) that lets Cursor drive the editor")
+
     args = parser.parse_args(argv)
 
+    if args.cmd == "mcp":
+        from .mcp_server import main as mcp_main
+
+        mcp_main()
+        return 0
     if args.cmd == "merge":
         return _cmd_merge(args)
     if args.cmd == "trace":
