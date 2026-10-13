@@ -125,6 +125,8 @@ function endNames(ux, uy) {
 
 const GAP_NAMES = { left: "to the wall on the left", right: "to the wall on the right", up: "to the wall above", down: "to the wall below" };
 const DIR_VEC = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
+// No reds or blues: walls draw red and the selection draws blue.
+const DIM_COLORS = ["#7b1fa2", "#00897b", "#ef6c00", "#c2185b", "#558b2f", "#6d4c41", "#3949ab"];
 const NOUNS = { walls: "wall", openings: "opening", counters: "counter", fixtures: "fixture", erase: "erase region" };
 
 function dirOf([x, y]) {
@@ -313,7 +315,10 @@ export function dimsFor(plan, kind, id) {
     });
     dims.push(...gapDims(plan, boxOf(kind, obj), noun));
   }
-  for (const d of dims) d.label = formatLength(d.value);
+  dims.forEach((d, i) => {
+    d.label = formatLength(d.value);
+    d.color = DIM_COLORS[i % DIM_COLORS.length];
+  });
   return dims;
 }
 

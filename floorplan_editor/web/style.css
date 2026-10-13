@@ -463,15 +463,14 @@ dialog label {
   stroke-dasharray: 5 3;
 }
 
-/* dimensions on the selection */
+/* dimensions on the selection: each one has its own --dim color, shared by its line, label, and side-panel field */
 .dim line {
-  stroke: #0d47a1;
+  stroke: var(--dim, #7b1fa2);
 }
 .dim line.ext {
-  stroke: rgba(13, 71, 161, 0.55);
+  stroke: color-mix(in srgb, var(--dim, #7b1fa2) 60%, transparent);
 }
 .dim.gap line {
-  stroke: #00897b;
   stroke-dasharray: 4 3;
 }
 .dim-label {
@@ -479,59 +478,49 @@ dialog label {
 }
 .dim-label rect {
   fill: #fff;
-  stroke: #0d47a1;
-  stroke-width: 1;
+  stroke: var(--dim, #7b1fa2);
+  stroke-width: 2;
 }
 .dim-label text {
-  font: 600 12px "Segoe UI", system-ui, sans-serif;
-  fill: #0d47a1;
+  font: 700 12px "Segoe UI", system-ui, sans-serif;
+  fill: var(--dim, #7b1fa2);
   user-select: none;
 }
-.dim-label.gap rect {
-  stroke: #00897b;
+.dim-label:hover rect,
+.dim-label.hot-dim rect {
+  fill: var(--dim, #7b1fa2);
 }
-.dim-label.gap text {
-  fill: #00695c;
-}
-.dim-label:hover rect {
-  fill: #0d47a1;
-}
-.dim-label:hover text {
-  fill: #fff;
-}
-.dim-label.gap:hover rect {
-  fill: #00897b;
-}
-
-/* the measurement under the pointer: its line, its label, its side-panel field, and the wall it measures to */
-.dim.hot-dim line,
-.dim.hot-dim line.ext {
-  stroke: #e65100;
-  stroke-dasharray: none;
-}
-.dim-label.hot-dim rect,
-.dim-label.gap.hot-dim rect {
-  fill: #e65100;
-  stroke: #e65100;
-}
+.dim-label:hover text,
 .dim-label.hot-dim text {
   fill: #fff;
 }
-#side .field.hot-dim {
-  border-radius: 4px;
-  background: #fff1e6;
-  box-shadow: 0 0 0 2px #fff1e6;
+
+/* the measurement under the pointer: its line, its label, its side-panel field, and the wall it measures to */
+.dim.hot-dim {
+  filter: drop-shadow(0 0 2px var(--dim)) drop-shadow(0 0 2px var(--dim));
 }
-#side .field.hot-dim label {
-  color: #bf360c;
+.dim.hot-dim line.ext {
+  stroke: var(--dim);
+}
+#side .field.dim-field {
+  border-left: 4px solid var(--dim);
+  padding-left: 5px;
+}
+#side .field.dim-field label {
+  color: var(--dim);
+  font-weight: 600;
+}
+#side .field.dim-field.hot-dim {
+  border-radius: 0 4px 4px 0;
+  background: color-mix(in srgb, var(--dim) 14%, #fff);
 }
 #plan-layer .obj.dim-ref polygon,
 #plan-layer .obj.dim-ref line,
 #plan-layer .obj.dim-ref path {
-  stroke: #e65100;
+  stroke: var(--dim);
 }
 #plan-layer .obj.dim-ref polygon.wall {
-  fill: rgba(230, 81, 0, 0.45);
+  fill: color-mix(in srgb, var(--dim) 55%, transparent);
 }
 
 /* object ids on the drawing */

@@ -191,6 +191,8 @@ function dimFields(kind, id, dims, keys) {
       else E.message(`${label} can't be ${formatLength(v)}.`, true);
     }, { min: d.gap ? 0 : 0.5 });
     field.dataset.dimKey = d.key;
+    field.classList.add("dim-field");
+    field.style.setProperty("--dim", d.color);
     field.querySelector("label").title = `${d.what} ${d.effect} Drag sideways to adjust.`;
     out.push(field);
     if (d.anchors) out.push(anchorRow(anchorKey, d.anchors));

@@ -715,12 +715,20 @@ function handlesFor(key) {
 function setHotDim(i) {
   if (app.hotDim === i) return;
   app.hotDim = i;
-  for (const n of document.querySelectorAll(".hot-dim, .dim-ref")) n.classList.remove("hot-dim", "dim-ref");
+  for (const n of document.querySelectorAll(".hot-dim")) n.classList.remove("hot-dim");
+  for (const n of document.querySelectorAll(".dim-ref")) {
+    n.classList.remove("dim-ref");
+    n.style.removeProperty("--dim");
+  }
   const d = i == null ? null : app.dims[i];
   if (!d) return;
   for (const n of uiLayer.querySelectorAll(`[data-dim="${i}"], [data-dim-line="${i}"]`)) n.classList.add("hot-dim");
   for (const n of document.querySelectorAll(`#side [data-dim-key="${d.key}"]`)) n.classList.add("hot-dim");
-  if (d.ref) document.querySelector(`#plan-layer [data-key="${CSS.escape(d.ref)}"]`)?.classList.add("dim-ref");
+  const ref = d.ref && document.querySelector(`#plan-layer [data-key="${CSS.escape(d.ref)}"]`);
+  if (ref) {
+    ref.classList.add("dim-ref");
+    ref.style.setProperty("--dim", d.color);
+  }
 }
 
 function hotDimAt(target) {
@@ -760,7 +768,7 @@ function dimsMarkup() {
         const [tx, ty] = [(ux - uy) * t, (uy + ux) * t];
         return `<line x1="${f2(x - tx)}" y1="${f2(y - ty)}" x2="${f2(x + tx)}" y2="${f2(y + ty)}"/>`;
       };
-      let s = `<g class="dim${d.gap ? " gap" : ""}" data-dim-line="${i}" stroke-width="${sw}">`;
+      let s = `<g class="dim${d.gap ? " gap" : ""}" data-dim-line="${i}" style="--dim: ${d.color}" stroke-width="${sw}">`;
       if (off) {
         for (const [p, q] of [
           [[ax, ay], A],
@@ -781,7 +789,7 @@ function dimsMarkup() {
         [mx, my] = [ex + ux * k, ey + uy * k];
       }
       s +=
-        `<g class="dim-label${d.gap ? " gap" : ""}" data-dim="${i}" role="button" aria-label="${esc(d.title)}: ${esc(d.label)}" data-tip="${esc(`${d.title}: ${d.what} ${d.effect} Click to type a value.`)}" transform="translate(${f2(mx)} ${f2(my)}) scale(${px(1)})">` +
+        `<g class="dim-label${d.gap ? " gap" : ""}" data-dim="${i}" role="button" aria-label="${esc(d.title)}: ${esc(d.label)}" data-tip="${esc(`${d.title}: ${d.what} ${d.effect} Click to type a value.`)}" style="--dim: ${d.color}" transform="translate(${f2(mx)} ${f2(my)}) scale(${px(1)})">` +
         `<rect x="${-w / 2}" y="-9" width="${w}" height="18" rx="9"/><text y="4" text-anchor="middle">${esc(d.label)}</text></g>`;
       return s;
     })
