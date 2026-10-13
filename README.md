@@ -155,6 +155,12 @@ driving dimensions. Click any measurement, type the value, and press Enter:
 - **Counters, fixtures, and erase regions** show width and depth, plus the clear distance to
   the wall on each side. **Outlines** show every edge.
 
+Each measurement has its own color, shared by its line, its label, and its field in the side
+panel. Hovering one says what it measures and what typing a value changes, and lights up the
+wall a clear distance is measured to. A label in the way can be dragged aside: a dotted line
+in its color ties it back to its measurement, and dropping it back on its line reattaches it.
+A press that doesn't move is a click and opens the box. Moved labels stay put for the session.
+
 When a size changes, something has to stay put. The box offers the choices by name ("left
 end", "middle", "right end") and remembers your pick for the next time. The same fields,
 with the same choices, are in the side panel.

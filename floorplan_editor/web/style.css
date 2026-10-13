@@ -476,6 +476,17 @@ dialog label {
 .dim-label {
   cursor: pointer;
 }
+.dim line.leader {
+  stroke: var(--dim, #7b1fa2);
+  stroke-linecap: round;
+}
+.dim .leader-dot {
+  fill: var(--dim, #7b1fa2);
+}
+#svg.dragging-dim,
+#svg.dragging-dim * {
+  cursor: grabbing !important;
+}
 .dim-label rect {
   fill: #fff;
   stroke: var(--dim, #7b1fa2);

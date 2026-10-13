@@ -23,7 +23,7 @@ import {
 import { dimsFor, opForDim } from "./measure.js";
 import { initOpen, renderEmpty } from "./open.js";
 import { initPanels, renderFiles, renderProps } from "./panels.js";
-import { initTips } from "./help.js";
+import { hideTip, initTips } from "./help.js";
 import { $, popInput, popOpen } from "./ui.js";
 
 const svg = $("svg");
@@ -77,6 +77,8 @@ export const app = {
   hoverEnd: null,
   handles: [],
   dims: [],
+  // Screen-pixel offsets of measurement labels the user dragged aside, by "kind:id:dimKey".
+  dimNudge: new Map(),
   sheetKey: "",
   sheetVersion: 0,
   fittedFor: null,
@@ -748,7 +750,7 @@ function dimsMarkup() {
   setHotDim(null);
   app.dims = [];
   const info = selectionInfo();
-  const busy = app.drag && app.drag.type !== "pan";
+  const busy = app.drag && app.drag.type !== "pan" && app.drag.type !== "dim-drag";
   if (!app.show.dims || app.tool !== "select" || info.n !== 1 || !info.planKeys.length || busy) return "";
   app.dims = dimsFor(app.plan, info.kind, info.id);
   const c = app.canvas;
@@ -778,7 +780,6 @@ function dimsMarkup() {
         }
       }
       if (len > px(2)) s += `<line x1="${f2(A[0])}" y1="${f2(A[1])}" x2="${f2(B[0])}" y2="${f2(B[1])}"/>${tick(A)}${tick(B)}`;
-      s += "</g>";
       const w = d.label.length * 7 + 12;
       let [mx, my] = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
       const need = (w + 8) * px(1);
@@ -788,8 +789,20 @@ function dimsMarkup() {
         const k = (before ? -1 : 1) * (need / 2 + px(2));
         [mx, my] = [ex + ux * k, ey + uy * k];
       }
+      d.nudgeKey = `${info.kind}:${info.id}:${d.key}`;
+      const nudge = app.dimNudge.get(d.nudgeKey);
+      if (nudge) {
+        const [lx, ly] = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+        mx += nudge[0] * px(1);
+        my += nudge[1] * px(1);
+        s +=
+          `<line class="leader" x1="${f2(lx)}" y1="${f2(ly)}" x2="${f2(mx)}" y2="${f2(my)}" style="stroke-width: ${px(1.5)}; stroke-dasharray: ${px(1)} ${px(4)}"/>` +
+          `<circle class="leader-dot" cx="${f2(lx)}" cy="${f2(ly)}" r="${f2(px(3))}"/>`;
+      }
+      s += "</g>";
+      const tipText = `${d.title}: ${d.what} ${d.effect} Click to type a value; drag to move the label out of the way${nudge ? " (drop it back on its line to reattach it)" : ""}.`;
       s +=
-        `<g class="dim-label${d.gap ? " gap" : ""}" data-dim="${i}" role="button" aria-label="${esc(d.title)}: ${esc(d.label)}" data-tip="${esc(`${d.title}: ${d.what} ${d.effect} Click to type a value.`)}" style="--dim: ${d.color}" transform="translate(${f2(mx)} ${f2(my)}) scale(${px(1)})">` +
+        `<g class="dim-label${d.gap ? " gap" : ""}${nudge ? " nudged" : ""}" data-dim="${i}" role="button" aria-label="${esc(d.title)}: ${esc(d.label)}" data-tip="${esc(tipText)}" style="--dim: ${d.color}" transform="translate(${f2(mx)} ${f2(my)}) scale(${px(1)})">` +
         `<rect x="${-w / 2}" y="-9" width="${w}" height="18" rx="9"/><text y="4" text-anchor="middle">${esc(d.label)}</text></g>`;
       return s;
     })
@@ -892,7 +905,7 @@ function toolPrompt() {
   const typing = "or type a length (10'6\"), length<angle (8'<90), or right, down (48, 0) and press Enter";
   switch (app.tool) {
     case "select":
-      if (app.selection.size) return "Drag it to move · Ctrl+drag a box to select instead, Shift+drag to add · Shift+click adds or removes one · click a measurement to type it";
+      if (app.selection.size) return "Drag it to move · Ctrl+drag a box to select instead, Shift+drag to add · Shift+click adds or removes one · click a measurement to type it, or drag it aside";
       return "Click to select · Ctrl+drag a box to select an area (Shift+drag adds) · drag empty space to pan · right-click for actions";
     case "wall":
       return d ? `Click the next corner, ${typing}. Double-click, Enter, or Esc stops.` : "Click the first corner of the wall. Shift keeps it straight.";
@@ -1328,10 +1341,10 @@ function openTyped(first) {
 
 // ---------------------------------------------------------------- typing exact sizes
 
-function openDimInput(kind, id, d) {
+function openDimInput(kind, id, d, at = null) {
   const c = app.canvas;
   const [mx, my] = c.pt((d.a[0] + d.b[0]) / 2, (d.a[1] + d.b[1]) / 2);
-  const [sx, sy] = toScreen(mx, my);
+  const [sx, sy] = at ? [at[0], at[1] - 8] : toScreen(mx, my);
   const anchorKey = `${kind}:${d.key}`;
   const choice = app.opts.anchor[anchorKey] || (kind === "fixtures" ? "center" : "start");
   popInput({
@@ -1753,8 +1766,7 @@ svg.addEventListener("pointerdown", async (e) => {
   const dimEl = e.target.closest && e.target.closest("[data-dim]");
   if (dimEl) {
     const d = app.dims[Number(dimEl.dataset.dim)];
-    const info = selectionInfo();
-    if (d && info.single) openDimInput(info.kind, info.id, d);
+    if (d) app.drag = { type: "dim-drag", dim: d, sx: e.clientX, sy: e.clientY, from: app.dimNudge.get(d.nudgeKey) || [0, 0], moved: false };
     return;
   }
   const flagEl = e.target.closest && e.target.closest("g.flag");
@@ -1836,6 +1848,17 @@ function dragTo(e) {
     const [ax, ay] = d.startWorld;
     d.ghost = `<rect class="flag-ghost" x="${f2(Math.min(ax, wx))}" y="${f2(Math.min(ay, wy))}" width="${f2(Math.abs(wx - ax))}" height="${f2(Math.abs(wy - ay))}" stroke-width="${px(1.5)}"/>`;
     renderUI();
+  } else if (d.type === "dim-drag") {
+    const dx = e.clientX - d.sx;
+    const dy = e.clientY - d.sy;
+    if (!d.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
+    if (!d.moved) {
+      d.moved = true;
+      hideTip();
+      svg.classList.add("dragging-dim");
+    }
+    app.dimNudge.set(d.dim.nudgeKey, [d.from[0] + dx, d.from[1] + dy]);
+    renderUI();
   } else if (d.type === "flag-move") {
     const [wx, wy] = toWorld(e);
     d.dx = wx - d.start[0];
@@ -1844,6 +1867,25 @@ function dragTo(e) {
     d.moved = true;
     d.el.setAttribute("transform", `translate(${d.orig[0] + d.dx} ${d.orig[1] + d.dy}) scale(${px(1)})`);
   }
+}
+
+const DRAG_SLOP = 4;
+const REATTACH = 14;
+
+/** A press on a measurement label that never moved is a click: open the box to type a value. */
+function dimDragUp(d) {
+  app.drag = null;
+  svg.classList.remove("dragging-dim");
+  const info = selectionInfo();
+  if (!d.moved) {
+    if (!info.single) return;
+    const label = uiLayer.querySelector(`[data-dim="${app.dims.indexOf(d.dim)}"]`);
+    const r = label && label.getBoundingClientRect();
+    openDimInput(info.kind, info.id, d.dim, r ? [r.left + r.width / 2, r.bottom] : null);
+    return;
+  }
+  const nudge = app.dimNudge.get(d.dim.nudgeKey);
+  if (nudge && Math.hypot(...nudge) < REATTACH) app.dimNudge.delete(d.dim.nudgeKey);
 }
 
 window.addEventListener("pointerup", async (e) => {
@@ -1860,6 +1902,7 @@ window.addEventListener("pointerup", async (e) => {
   else if (d.type === "marquee") marqueeUp();
   else if (d.type === "flag-new") flagNewUp(e);
   else if (d.type === "flag-move") flagMoveUp();
+  else if (d.type === "dim-drag") dimDragUp(d);
   else if (d.type === "rect" && d.kind === "fixtures") {
     app.drag = null;
     await placeFixture(d.start, d.cur);
@@ -1874,7 +1917,7 @@ window.addEventListener("pointerup", async (e) => {
 });
 
 svg.addEventListener("dblclick", async (e) => {
-  if (!app.plan) return;
+  if (!app.plan || (e.target.closest && e.target.closest("[data-dim]"))) return;
   if (app.tool === "wall") {
     app.draft = null;
     app.hoverGhost = null;
