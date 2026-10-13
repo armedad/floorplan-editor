@@ -38,6 +38,7 @@ def _cmd_trace(args) -> int:
         min_thickness_px=args.min_thickness,
         max_thickness_px=args.max_thickness,
         min_length_px=args.min_length,
+        merge=not args.no_merge,
     )
     plan = new_plan_from_image(
         args.image,
@@ -101,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     trace_cmd.add_argument("--max-thickness", type=int, default=24, help="thickest wall, in pixels")
     trace_cmd.add_argument("--min-length", type=int, default=12, help="shortest wall, in pixels")
     trace_cmd.add_argument("--no-walls", action="store_true", help="create an empty plan sized to the image")
+    trace_cmd.add_argument("--no-merge", action="store_true", help="keep bars side by side as separate thin walls")
 
     serve_cmd = sub.add_parser("serve", help="open the browser editor on a plan folder")
     serve_cmd.add_argument("folder", type=Path, nargs="?", default=Path.cwd())

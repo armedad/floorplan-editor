@@ -2,6 +2,7 @@
 // action bar over the selection all read this list, so new actions belong here, not in one of them.
 
 import * as E from "./app.js";
+import { mergeSelectedWalls, mergeStacked, selectFound, showConvertMenu, thicknessSelection } from "./convert.js";
 import { copyAllFlags, copyText, editFlagNote, flagList, flagText, getFlag, setFlagDone } from "./flags.js";
 import { openPicker, showOpenMenu } from "./open.js";
 import { openNewDialog, runTrace, showPanel } from "./panels.js";
@@ -26,6 +27,7 @@ const onlyFlags = (c) => c.n > 0 && c.flagKeys.length === c.n;
 const singleKind = (c, kind) => c.n === 1 && c.kind === kind;
 const isDoor = (c) => singleKind(c, "openings") && c.obj && c.obj.type === "door";
 const isBoxCounter = (c) => singleKind(c, "counters") && c.obj && !c.obj.points;
+const onlyWalls = (c) => c.n > 0 && c.kinds.size === 1 && c.kinds.has("walls");
 
 export const COMMANDS = [
   // File
@@ -55,6 +57,18 @@ export const COMMANDS = [
     when: (c) => c.n === 1 && ["walls", "openings", "counters", "fixtures", "erase"].includes(c.kind),
     run: () => E.editPrimaryDim(),
   },
+  {
+    id: "convert",
+    group: "Edit",
+    label: "Convert to a door, window, fixture, counter, label, or erase region…",
+    barLabel: () => "Convert…",
+    keys: ["Shift+C"],
+    bar: true,
+    when: (c) => c.planKeys.length > 0,
+    run: () => showConvertMenu(),
+  },
+  { id: "merge-walls", group: "Edit", label: "Merge the walls into one", barLabel: () => "Merge", keys: ["J"], bar: true, when: (c) => onlyWalls(c) && c.n >= 2, run: () => mergeSelectedWalls() },
+  { id: "thickness", group: "Edit", label: "Set wall thickness…", barLabel: () => "Thickness…", keys: ["Shift+T"], bar: true, when: onlyWalls, run: () => thicknessSelection() },
   { id: "move-by", group: "Edit", label: "Move by an exact distance…", barLabel: () => "Move…", keys: ["M"], bar: true, when: (c) => c.planKeys.length > 0, run: () => E.moveSelectionBy() },
   { id: "rotate", group: "Edit", label: "Rotate 90° clockwise", barLabel: () => "Rotate", keys: ["R"], bar: true, when: (c) => singleKind(c, "fixtures"), run: () => E.rotateSelection(90) },
   { id: "rotate-back", group: "Edit", label: "Rotate 90° counterclockwise", keys: ["Shift+R"], when: (c) => singleKind(c, "fixtures"), run: () => E.rotateSelection(-90) },
@@ -64,6 +78,7 @@ export const COMMANDS = [
   { id: "outline", group: "Edit", label: "Edit corners (turn the box into an outline)", barLabel: () => "Edit corners", bar: true, when: isBoxCounter, run: () => E.toOutline() },
   { id: "duplicate", group: "Edit", label: "Duplicate", barLabel: () => "Duplicate", keys: ["Ctrl+D"], bar: true, when: (c) => c.planKeys.length > 0, run: () => E.duplicateSelection() },
   { id: "copy", group: "Edit", label: "Copy", keys: ["Ctrl+C"], when: (c) => c.n > 0, run: () => (onlyFlags(E.selectionInfo()) ? copySelectedFlags() : E.copySelection()) },
+  { id: "copy-ids", group: "Edit", label: "Copy the selection's ids for Cursor", keys: ["Ctrl+Shift+C"], when: (c) => c.planKeys.length > 0, run: () => copySelectedIds() },
   { id: "paste", group: "Edit", label: "Paste at the pointer", keys: ["Ctrl+V"], when: (c) => c.plan && c.clipboard, run: () => E.pasteClipboard() },
   { id: "flag-selection", group: "Flags", label: "Flag the selection", barLabel: () => "Flag", keys: ["Shift+F"], bar: true, when: (c) => c.planKeys.length > 0, run: () => E.flagSelection() },
   { id: "delete", group: "Edit", label: "Delete", barLabel: () => "Delete", keys: ["Delete", "Backspace"], bar: true, danger: true, when: (c) => c.n > 0, run: () => E.deleteSelection() },
@@ -99,6 +114,7 @@ export const COMMANDS = [
   { id: "toggle-panel", group: "View", label: "Show or hide the side panel", keys: ["\\"], run: () => E.toggleSide() },
   { id: "toggle-sheet", group: "View", label: "Show or hide the sheet image", run: () => E.toggleView("show-sheet") },
   { id: "toggle-dims", group: "View", label: "Show or hide measurements on the selection", keys: ["Shift+D"], run: () => E.toggleView("show-dims") },
+  { id: "toggle-ids", group: "View", label: "Show or hide object ids on the drawing", keys: ["I"], when: (c) => c.plan, run: () => E.toggleView("show-ids") },
   { id: "toggle-erase", group: "View", label: "Show or hide erase regions", run: () => E.toggleView("show-erase") },
   { id: "toggle-snap", group: "View", label: "Snap to corners and walls on or off", run: () => E.toggleView("snap") },
   { id: "toggle-grid", group: "View", label: "Snap to the 1\" grid on or off", run: () => E.toggleView("grid") },
@@ -107,10 +123,19 @@ export const COMMANDS = [
   { id: "set-ppi", group: "Scale", label: "Type the scale (sheet pixels per inch)…", when: (c) => c.plan, run: () => E.typeScale() },
   { id: "trace-preview", group: "Trace", label: "Auto-trace walls: preview", when: (c) => c.plan && c.sheet, run: () => runTrace("preview") },
   { id: "trace-apply", group: "Trace", label: "Auto-trace walls: add them", when: (c) => c.plan && c.sheet, run: () => runTrace("apply") },
+  { id: "merge-stacked", group: "Clean up", label: "Merge stacked walls (each group in the selection, or the whole plan)", keys: ["Shift+J"], when: (c) => c.plan, run: () => mergeStacked() },
+  { id: "select-stacked", group: "Clean up", label: "Select walls that are really one (side by side or broken)", when: (c) => c.plan, run: () => selectFound("stacked") },
+  { id: "select-stray", group: "Clean up", label: "Select stray bits (traced letters and symbol pieces)", when: (c) => c.plan, run: () => selectFound("stray") },
 
   // Help
   { id: "palette", group: "Help", label: "Show every command and shortcut", keys: ["Ctrl+K", "Ctrl+Shift+P", "?"], run: () => openPalette() },
 ];
+
+function copySelectedIds() {
+  const keys = E.selectionInfo().planKeys;
+  const ids = keys.map((k) => (k.startsWith("labels:") ? k : E.splitKey(k)[1]));
+  copyText(ids.join(", "), keys.length === 1 ? E.describeKey(keys[0]) : `${keys.length} ids`);
+}
 
 function copySelectedFlags() {
   const flags = E.selectionInfo()

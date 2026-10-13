@@ -17,6 +17,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from .analyze import wall_groups
 from .model import compass_from_up
 
 
@@ -27,6 +28,7 @@ class TraceSettings:
     max_thickness_px: int = 24
     min_length_px: int = 12
     tolerance_px: int = 2
+    merge: bool = True
 
 
 def _ink_rows(image: Image.Image, dark: int) -> tuple[int, int, list[bytes]]:
@@ -163,7 +165,21 @@ def trace_walls(
             wall = {"x1": inches(cx, ox), "y1": inches(y0, oy), "x2": inches(cx, ox), "y2": inches(y1, oy)}
             thickness = x1 - x0
         walls.append({"id": f"{id_prefix}{n}", **wall, "thickness": round(thickness / px_per_inch, 2)})
+    if settings.merge and len(walls) > 1:
+        walls = merge_stacked_bars(walls, settings.tolerance_px / px_per_inch, id_prefix)
     return walls
+
+
+def merge_stacked_bars(walls: list[dict], max_gap: float, id_prefix: str = "w") -> list[dict]:
+    """Merge bars that are one wall (a thick wall or a filled chase traced as thin bars side by side,
+    or a wall broken by a tick mark), then number the walls again."""
+    from .edit import merge_into_one
+
+    plan = {"walls": [dict(w) for w in walls]}
+    for group in wall_groups(plan, max_gap=max_gap):
+        members = [w for w in plan["walls"] if w["id"] in group["ids"]]
+        merge_into_one(plan, members)
+    return [{**w, "id": f"{id_prefix}{n}"} for n, w in enumerate(plan["walls"], start=1)]
 
 
 TYPICAL_WALL_INCHES = 4.5

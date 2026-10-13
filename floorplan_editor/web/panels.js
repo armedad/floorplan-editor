@@ -3,6 +3,7 @@
 import { api, readFileBase64 } from "./api.js";
 import * as E from "./app.js";
 import { COMMANDS, context } from "./commands.js";
+import { mergeStacked, selectFound } from "./convert.js";
 import { copyAllFlags, copyText, deleteFlags, editFlagNote, flagText, renderFlagsPanel, setFlagDone, zoomToFlag } from "./flags.js";
 import { formatLength, parseLength, round2, wallAngle, wallFrame } from "./geom.js";
 import { dimsFor, opForDim } from "./measure.js";
@@ -88,7 +89,7 @@ const fmt = (v) => String(round2(v));
  * A length field: takes 10'6", 126, or an expression; Arrow keys nudge by 1" (Shift 12", Alt 1/4")
  * and apply at once; dragging the label scrubs the value.
  */
-function lengthField(label, value, commit, { hint, unit = "length", min = -Infinity } = {}) {
+function lengthField(label, value, commit, { hint, unit = "length", min = -Infinity, mixed = false } = {}) {
   const parse = unit === "length" ? parseLength : (t) => Number(String(t).replace(/[°\s]/g, ""));
   const show = (v) => (unit === "length" ? formatLength(v) : unit === "angle" ? `${round2(v)}°` : String(round2(v)));
   const input = el("input", { value: fmt(value), spellcheck: "false", "aria-label": label });
@@ -99,7 +100,7 @@ function lengthField(label, value, commit, { hint, unit = "length", min = -Infin
       input.value = fmt(value);
       return;
     }
-    if (Math.abs(v - value) < 1e-6) return;
+    if (!mixed && Math.abs(v - value) < 1e-6) return;
     commit(round2(v));
   };
   input.addEventListener("change", () => apply(parse(input.value)));
@@ -227,6 +228,36 @@ function actionsRow() {
   );
 }
 
+/** Thickness for one or more walls, with the face that stays put when it changes. */
+function thicknessFields(walls) {
+  const across = walls.every((w) => Math.abs(w.x2 - w.x1) >= Math.abs(w.y2 - w.y1));
+  const upDown = walls.every((w) => Math.abs(w.x2 - w.x1) < Math.abs(w.y2 - w.y1));
+  const faces = across ? [["center", "middle"], ["up", "top"], ["down", "bottom"]] : upDown ? [["center", "middle"], ["left", "left"], ["right", "right"]] : [["center", "middle"]];
+  const keep = faces.some(([v]) => v === app.opts.thicknessKeep) ? app.opts.thicknessKeep : "center";
+  const same = walls.every((w) => w.thickness === walls[0].thickness);
+  const thickest = Math.max(...walls.map((w) => w.thickness));
+  const field = lengthField(
+    "thickness",
+    thickest,
+    (v) => E.send({ op: "set_wall_thickness", ids: walls.map((w) => w.id), thickness: v, keep }),
+    { min: 0.25, mixed: !same, hint: same ? undefined : `mixed, up to ${formatLength(thickest)}` },
+  );
+  if (faces.length === 1) return [field];
+  const row = el(
+    "div",
+    { class: "anchor-row", role: "radiogroup", "aria-label": "which face stays put" },
+    el("span", { class: "hint" }, "Stays put:"),
+    ...faces.map(([v, text]) =>
+      el(
+        "button",
+        { type: "button", role: "radio", "aria-checked": String(v === keep), class: v === keep ? "active" : "", on: { click: () => ((app.opts.thicknessKeep = v), renderProps(app)) } },
+        text,
+      ),
+    ),
+  );
+  return [field, row];
+}
+
 // ---------------------------------------------------------------- properties by kind
 
 function wallProps(w) {
@@ -244,7 +275,7 @@ function wallProps(w) {
       },
       { unit: "angle", hint: "° from right, counterclockwise" },
     ),
-    lengthField("thickness", w.thickness, (v) => update(k, w.id, { thickness: v }), { min: 0.25 }),
+    ...thicknessFields([w]),
     ...dimFields(k, w.id, dims, ["gaps"]),
     more(
       "Ends and id",
@@ -396,9 +427,26 @@ function multiProps(info) {
     const kind = key.split(":")[0];
     counts[kind] = (counts[kind] || 0) + 1;
   }
+  const ids = info.planKeys.map((k) => (k.startsWith("labels:") ? k : E.splitKey(k)[1]));
+  const walls = info.planKeys.length === info.n && info.kinds.size === 1 && info.kinds.has("walls") ? info.planKeys.map((k) => E.getObject(k)) : null;
   return [
     el("p", {}, Object.entries(counts).map(([k, n]) => `${n} ${n === 1 ? k.replace(/s$/, "") : k}`).join(", ")),
-    el("p", { class: "note" }, "Drag any of them to move them together, use the arrow keys to nudge, or Move… for an exact distance. Shift+click adds or removes one."),
+    walls ? thicknessFields(walls) : null,
+    ids.length
+      ? el(
+          "p",
+          { class: "note ids" },
+          `ids: ${ids.length > 24 ? `${ids.slice(0, 24).join(", ")}, …` : ids.join(", ")} `,
+          el("button", { type: "button", class: "link", on: { click: () => copyText(ids.join(", "), `${ids.length} ids`) } }, "copy"),
+        )
+      : null,
+    el(
+      "p",
+      { class: "note" },
+      walls
+        ? "Merge (J) makes them one wall; Convert… (Shift+C) makes them a door, fixture, label, or erase region. Cursor sees this selection too."
+        : "Convert… (Shift+C) replaces them with a door, fixture, counter, label, or erase region. Drag any of them to move them together. Cursor sees this selection too.",
+    ),
   ];
 }
 
@@ -447,6 +495,7 @@ function traceSettings() {
     min_thickness_px: Number($("tr-min").value),
     max_thickness_px: Number($("tr-max").value),
     min_length_px: Number($("tr-len").value),
+    merge: $("tr-merge").checked,
   };
 }
 
@@ -550,6 +599,10 @@ export function initPanels(appRef) {
     $("trace-note").textContent = "";
   });
   $("trace-apply").addEventListener("click", () => runTrace("apply"));
+  $("tr-merge").addEventListener("change", () => app.traceWalls && runTrace("preview"));
+  $("clean-stacked").addEventListener("click", () => selectFound("stacked"));
+  $("clean-merge").addEventListener("click", () => mergeStacked());
+  $("clean-stray").addEventListener("click", () => selectFound("stray"));
   $("flags-add").addEventListener("click", () => E.setTool("flag"));
   $("flags-copy").addEventListener("click", copyAllFlags);
   $("flags-clear").addEventListener("click", () => E.call("/api/flags", { action: "clear_done" }, { selectRef: false }));

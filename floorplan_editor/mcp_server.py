@@ -26,8 +26,9 @@ from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.fastmcp.exceptions import ToolError
 from PIL import Image as PILImage
 
-from .engine.geometry import along, distance_to_wall, format_length, project, rotate, wall_length
-from .engine.model import LIST_KEYS
+from .engine.analyze import object_box, union_box
+from .engine.geometry import along, distance_to_wall, format_length, project, wall_length
+from .engine.model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS
 
 URL = os.environ.get("FLOORPLAN_URL", "http://127.0.0.1:8765").rstrip("/")
 LOG = Path(tempfile.gettempdir()) / "floorplan-editor.log"
@@ -45,10 +46,16 @@ mcp = FastMCP(
         "Start with editor_status (or start_editor with a folder, or open_anything with any file). "
         "The user drops numbered flags (F1, F2, ...) on the drawing to point at things; when they "
         "mention a flag, call list_flags to see where it is and what is under it, and "
-        "view_image(flag=...) to look. Use find_objects to locate things by position, view_image "
-        "to look at the sheet, overlay, or plan (crop with a region in inches), then edit. Edits "
-        "stay in memory until save; save mode 'step' writes the next plan-stepN.json. The user's "
-        "browser, if open, updates live. Mark a flag done with update_flag once it's handled."
+        "view_image(flag=...) to look. When they say 'this' or 'what I selected', call get_selection. "
+        "Use find_objects to locate things by position, and view_image to look at the sheet, overlay, "
+        "or plan (crop with a region in inches; cropped views label every object's id, so you can name "
+        "them). Objects are referenced by id (w12, toilet-1); labels as labels:<index>. "
+        "A traced plan is mostly walls: convert_objects turns traced pieces into doors, windows, "
+        "fixtures, counters, labels, or erase regions; merge_walls and find_stacked_walls join thin "
+        "bars that are one thick wall; find_stray_bits finds traced letters; set_wall_thickness sets "
+        "thickness keeping a chosen face. Edits stay in memory until save; save mode 'step' writes the "
+        "next plan-stepN.json. The user's browser, if open, updates live. Mark a flag done with "
+        "update_flag once it's handled."
     ),
 )
 
@@ -105,10 +112,19 @@ def _ui(command: dict) -> int:
         return 0
 
 
-def _note(text: str, ref: list | None = None) -> None:
-    if ref:
+def _note(text: str, ref: list | None = None, refs: list | None = None) -> None:
+    if refs:
+        _ui({"action": "select", "keys": [f"{k}:{i}" for k, i in refs]})
+    elif ref:
         _ui({"action": "select", "key": f"{ref[0]}:{ref[1]}"})
     _ui({"action": "message", "text": f"Cursor: {text}"})
+
+
+def _selection_keys() -> list[str]:
+    try:
+        return list(_get("/api/selection").get("keys") or [])
+    except ToolError:
+        return []
 
 
 # ---------------------------------------------------------------- summaries
@@ -165,42 +181,36 @@ def _require_clean(discard_unsaved: bool) -> dict:
 
 def _op(op: dict, note: str) -> dict:
     state = _post("/api/op", {"op": op})
-    _note(note, state.get("ref"))
-    return _summary(state)
+    _note(note, state.get("ref"), state.get("refs"))
+    summary = _summary(state)
+    if state.get("refs") and state.get("plan"):
+        summary["touched_all"] = [{"kind": k, "id": i} for k, i in state["refs"]]
+    return summary
 
 
 # ---------------------------------------------------------------- object geometry
 
 
-def object_box(plan: dict, kind: str, obj: dict) -> tuple[float, float, float, float] | None:
-    """Bounding box in inches (x0, y0, x1, y1)."""
-    if kind == "walls":
-        half = float(obj.get("thickness", 0)) / 2
-        xs, ys = (float(obj["x1"]), float(obj["x2"])), (float(obj["y1"]), float(obj["y2"]))
-        return (min(xs) - half, min(ys) - half, max(xs) + half, max(ys) + half)
-    if kind == "openings":
-        wall = _lookup(plan, "walls", obj.get("wall"))
-        if not wall:
-            return None
-        ax, ay = along(wall, float(obj["offset"]))
-        bx, by = along(wall, float(obj["offset"]) + float(obj["width"]))
-        pad = float(obj["width"]) if obj.get("type") == "door" else float(wall.get("thickness", 0)) / 2
-        return (min(ax, bx) - pad, min(ay, by) - pad, max(ax, bx) + pad, max(ay, by) + pad)
-    if kind == "counters" and "points" in obj:
-        xs = [float(p[0]) for p in obj["points"]]
-        ys = [float(p[1]) for p in obj["points"]]
-        return (min(xs), min(ys), max(xs), max(ys))
-    if kind == "labels":
-        x, y = float(obj["x"]), float(obj["y"])
-        return (x, y, x, y)
-    x, y, w, h = (float(obj[k]) for k in ("x", "y", "w", "h"))
-    if kind == "fixtures":
-        half = ((-w / 2, -h / 2), (w / 2, -h / 2), (w / 2, h / 2), (-w / 2, h / 2))
-        corners = [rotate(lx, ly, float(obj.get("rot", 0))) for lx, ly in half]
-        xs = [x + cx for cx, _ in corners]
-        ys = [y + cy for _, cy in corners]
-        return (min(xs), min(ys), max(xs), max(ys))
-    return (x, y, x + w, y + h)
+def resolve(plan: dict, refs: list) -> list[list]:
+    """[kind, id] pairs for references given as ids ("w12"), keys ("walls:w12", "labels:3"), or [kind, id].
+    Ids are unique across kinds, so a bare id is enough for everything but labels."""
+    out = []
+    for ref in refs:
+        if isinstance(ref, (list, tuple)) and len(ref) == 2:
+            kind, rid = str(ref[0]), ref[1]
+        elif isinstance(ref, str) and ":" in ref:
+            kind, _, rid = ref.partition(":")
+        else:
+            rid = ref
+            kind = next((k for k in ID_KEYS if any(o.get("id") == rid for o in plan.get(k, []))), None)
+            if kind is None:
+                raise ToolError(f"no object with id {rid!r} (labels are referenced as labels:<index>)")
+        if kind == "labels":
+            rid = int(rid)
+        if kind not in LIST_KEYS or _lookup(plan, kind, rid) is None:
+            raise ToolError(f"no {kind} {rid!r}")
+        out.append([kind, rid])
+    return out
 
 
 def _distance(plan: dict, kind: str, obj: dict, box, x: float, y: float) -> float:
@@ -502,6 +512,55 @@ def draw_flags(image: PILImage.Image, flags: list[dict]) -> None:
         draw.text((x, y - 2 * r), flag["id"], fill=(255, 255, 255), font=font, anchor="mm")
 
 
+HIGHLIGHT_RGB = (21, 101, 192)
+
+
+def draw_ids(
+    image: PILImage.Image, plan: dict, crop: tuple[int, int, int, int], text_px: float, marked: set[str], *, label: bool = True
+) -> int:
+    """Write each object's id at its middle (a wall's at its midpoint), and outline the `marked`
+    keys (kind:id) in blue. Only objects inside `crop` (sheet pixels) are drawn. Returns how many."""
+    from PIL import ImageDraw, ImageFont
+
+    draw = ImageDraw.Draw(image, "RGBA")
+    try:
+        font = ImageFont.load_default(size=max(8, round(text_px)))
+    except TypeError:
+        font = ImageFont.load_default()
+    canvas = plan["canvas"]
+    scale, (ox, oy) = float(canvas["px_per_inch"]), canvas["origin_px"]
+
+    def to_px(x: float, y: float) -> tuple[float, float]:
+        return ox + x * scale, oy + y * scale
+
+    n = 0
+    line = max(2, round(text_px / 6))
+    for kind in LIST_KEYS:
+        for index, obj in enumerate(plan.get(kind, [])):
+            ref = index if kind == "labels" else obj.get("id")
+            box = object_box(plan, kind, obj)
+            if box is None:
+                continue
+            bx0, by0 = to_px(box[0], box[1])
+            bx1, by1 = to_px(box[2], box[3])
+            if bx1 < crop[0] or bx0 > crop[2] or by1 < crop[1] or by0 > crop[3]:
+                continue
+            if f"{kind}:{ref}" in marked:
+                draw.rectangle([bx0 - line, by0 - line, bx1 + line, by1 + line], outline=HIGHLIGHT_RGB + (255,), width=line)
+            if not label:
+                continue
+            if kind == "walls":
+                cx, cy = to_px((float(obj["x1"]) + float(obj["x2"])) / 2, (float(obj["y1"]) + float(obj["y2"])) / 2)
+            else:
+                cx, cy = (bx0 + bx1) / 2, (by0 + by1) / 2
+            text = f"label {ref}" if kind == "labels" else str(ref)
+            left, top, right, bottom = draw.textbbox((cx, cy), text, font=font, anchor="mm")
+            draw.rectangle([left - 2, top - 1, right + 2, bottom + 1], fill=(255, 255, 255, 215))
+            draw.text((cx, cy), text, fill=HIGHLIGHT_RGB if f"{kind}:{ref}" in marked else (20, 20, 20), font=font, anchor="mm")
+            n += 1
+    return n
+
+
 @mcp.tool()
 def view_image(
     source: Literal["overlay", "sheet", "plan", "file"] = "overlay",
@@ -512,6 +571,9 @@ def view_image(
     max_px: int = 1200,
     erase: bool = True,
     show_flags: bool = True,
+    label_ids: bool | None = None,
+    highlight: list[str] | None = None,
+    show_selection: bool = True,
 ):
     """Look at the drawing. Returns a PNG.
 
@@ -522,6 +584,10 @@ def view_image(
       are enlarged so details are readable.
     flag: crop around a flag (F3), or the box it marks, with 36" of room unless padding is larger.
     show_flags: draw the user's flags as orange numbered pins (gray once done).
+    label_ids: write each object's id on it, so you can name objects in later calls. On by default
+      when cropping (region or flag), off for the whole sheet.
+    highlight: ids (or kind:id keys) to outline in blue. show_selection also outlines whatever the
+      user has selected in the editor.
     max_px: longest side of the returned image.
     """
     if source == "file":
@@ -533,36 +599,51 @@ def view_image(
     data = _request("GET", path).content
     image = PILImage.open(io.BytesIO(data)).convert("RGB")
     caption = f"{source}{' ' + file if file else ''}: {image.width}x{image.height}px"
-    if flag or show_flags:
-        flags = _get("/api/state").get("flags") or []
-        if flag:
-            match = next((f for f in flags if f["id"].lower() == flag.lower()), None)
-            if match is None or "x" not in match:
-                raise ToolError(f"no flag {flag!r} on an open plan")
-            x0, y0 = match["x"], match["y"]
-            region = [x0, y0, x0 + match.get("w", 0), y0 + match.get("h", 0)]
-            padding = max(padding, 36)
-            caption += f", around {match['id']}"
-        if show_flags and flags:
-            draw_flags(image, flags)
+    state = _get("/api/state")
+    plan = state.get("plan")
+    flags = state.get("flags") or []
+    if flag:
+        match = next((f for f in flags if f["id"].lower() == flag.lower()), None)
+        if match is None or "x" not in match:
+            raise ToolError(f"no flag {flag!r} on an open plan")
+        x0, y0 = match["x"], match["y"]
+        region = [x0, y0, x0 + match.get("w", 0), y0 + match.get("h", 0)]
+        padding = max(padding, 36)
+        caption += f", around {match['id']}"
+    crop = (0, 0, image.width, image.height)
     if region:
-        state = _get("/api/state")
-        plan = state.get("plan")
         if not plan:
             raise ToolError("cropping to a region needs an open plan for the scale")
         canvas = plan["canvas"]
         scale, (ox, oy) = float(canvas["px_per_inch"]), canvas["origin_px"]
         x0, y0, x1, y1 = (float(v) for v in region)
-        box = (
+        crop = (
             max(0, int(ox + (min(x0, x1) - padding) * scale)),
             max(0, int(oy + (min(y0, y1) - padding) * scale)),
             min(image.width, int(math.ceil(ox + (max(x0, x1) + padding) * scale))),
             min(image.height, int(math.ceil(oy + (max(y0, y1) + padding) * scale))),
         )
-        if box[2] <= box[0] or box[3] <= box[1]:
+        if crop[2] <= crop[0] or crop[3] <= crop[1]:
             raise ToolError("that region is off the sheet")
-        image = image.crop(box)
-        caption += f", cropped to inches [{x0}, {y0}, {x1}, {y1}] with {padding}\" padding (pixels {list(box)})"
+        caption += f", cropped to inches [{x0}, {y0}, {x1}, {y1}] with {padding}\" padding (pixels {list(crop)})"
+    factor = min(max_px / max(crop[2] - crop[0], crop[3] - crop[1]), 4.0)
+    if show_flags and flags:
+        draw_flags(image, flags)
+    if label_ids is None:
+        label_ids = bool(region)
+    marked: set[str] = set()
+    if plan and highlight:
+        marked |= {f"{k}:{i}" for k, i in resolve(plan, highlight)}
+    if plan and show_selection:
+        marked |= {k for k in _selection_keys() if not k.startswith("flags:")}
+    if plan and (label_ids or marked):
+        n = draw_ids(image, plan, crop, 11 / factor, marked, label=label_ids)
+        if label_ids:
+            caption += f", {n} ids labeled"
+        if marked:
+            caption += f", outlined in blue: {', '.join(sorted(marked))}"
+    if region:
+        image = image.crop(crop)
     longest = max(image.width, image.height)
     factor = min(max_px / longest, 4.0)
     if abs(factor - 1) > 0.01:
@@ -615,6 +696,204 @@ def find_objects(
     return {"count": len(hits), "hits": hits}
 
 
+def _object_view(plan: dict, kind: str, ref, obj: dict) -> dict:
+    box = object_box(plan, kind, obj)
+    return {"kind": kind, "id": ref, "what": describe(plan, kind, obj), "box": [round(v, 2) for v in box] if box else None, "object": obj}
+
+
+def _open_plan() -> dict:
+    plan = _get("/api/state").get("plan")
+    if plan is None:
+        raise ToolError("No plan is open.")
+    return plan
+
+
+@mcp.tool()
+def get_selection() -> dict:
+    """What the user has selected in the editor right now: each object's kind, id, description, box
+    (inches), and full JSON, plus the box around them all. Use it when the user says "this", "these",
+    or "what I selected", then act on the ids (convert_objects with use_selection=true, merge_walls, ...)."""
+    data = _get("/api/selection")
+    plan = _open_plan()
+    items = [_object_view(plan, i["kind"], i["id"], i["object"]) for i in data["items"] if i["kind"] != "flags"]
+    out: dict[str, Any] = {"count": len(items), "items": items}
+    flags = [i["id"] for i in data["items"] if i["kind"] == "flags"]
+    if flags:
+        out["flags"] = flags
+    box = union_box(tuple(i["box"]) for i in items if i["box"])
+    if box:
+        out["box"] = [round(v, 2) for v in box]
+    walls = [i["object"] for i in items if i["kind"] == "walls"]
+    if len(walls) >= 2 and len(walls) == len(items):
+        from .engine.analyze import parallel
+
+        out["walls_parallel"] = all(parallel(walls[0], w) for w in walls[1:])
+    if not data.get("browsers"):
+        out["note"] = "No browser has the editor open, so the selection may be stale."
+    elif not items and not flags:
+        out["note"] = "Nothing is selected."
+    return out
+
+
+@mcp.tool()
+def get_objects(ids: list[str]) -> dict:
+    """Full JSON, a description, and the box (inches) of each object. Refer to objects by id (w12,
+    toilet-1, door-3); ids are unique across kinds. Labels have no id: use labels:<index>."""
+    plan = _open_plan()
+    return {"objects": [_object_view(plan, k, i, _lookup(plan, k, i)) for k, i in resolve(plan, ids)]}
+
+
+def _items_for(plan: dict, ids: list[str] | None, use_selection: bool) -> list[list]:
+    if use_selection:
+        keys = [k for k in _selection_keys() if not k.startswith("flags:")]
+        if not keys:
+            raise ToolError("Nothing is selected in the editor.")
+        return resolve(plan, keys)
+    if not ids:
+        raise ToolError("give ids, or use_selection=true")
+    return resolve(plan, ids)
+
+
+@mcp.tool()
+def convert_objects(
+    to: Literal["wall", "door", "window", "fixture", "counter", "outline", "label", "erase"],
+    ids: list[str] | None = None,
+    use_selection: bool = False,
+    fixture_type: str | None = None,
+    rot: float = 0,
+    text: str | None = None,
+    wall: str | None = None,
+    width: float | str | None = None,
+    hinge: Literal["start", "end"] | None = None,
+    swing: Literal["cw", "ccw"] | None = None,
+    thickness: float | str | None = None,
+    w: float | str | None = None,
+    h: float | str | None = None,
+    at: list[float] | None = None,
+    keep_originals: bool = False,
+) -> dict:
+    """Replace objects (usually traced walls that are really something else) with the real thing,
+    sized to the box around them, as one undo step. Name them by ids, or use_selection=true for
+    what the user selected. The originals are removed unless keep_originals.
+
+    to='wall': several parallel walls merge into one covering them all (thickness overrides the
+      combined thickness); anything else becomes a wall along the box's long side.
+    to='door'/'window': a gap between two walls in line near the objects is the doorway; the two
+      walls join into one and the opening fills the gap exactly. Otherwise it goes on `wall`, or the
+      nearest wall, as wide as the objects along it. `width` overrides the width; long walls in the
+      selection are kept. A door's swing faces the side its drawn leaf was on unless swing is given.
+      With no ids, `at` [x, y] inches finds the doorway gap at that point.
+    to='fixture': fixture_type (refrigerator, range, oven, dishwasher, toilet, tub, soaking_tub, sink,
+      washer, dryer, washer_dryer, stool, generic) centered on the box; rot turns it clockwise
+      (90/270 swap w and h so it still fits the box); w/h override the size.
+    to='counter' (a box), 'outline' (editable corners), 'label' (text, sized to the box's height),
+    'erase' (white out the sheet ink there: good for text and symbols that aren't plan objects).
+    Lengths accept inches or text like 2'6".
+    """
+    plan = _open_plan()
+    items = _items_for(plan, ids, use_selection) if (ids or use_selection or not at) else []
+    op: dict[str, Any] = {"op": "convert", "to": to, "keep": keep_originals}
+    if items:
+        op["items"] = items
+    for key, value in (("type", fixture_type), ("text", text), ("wall", wall), ("width", width), ("hinge", hinge), ("swing", swing), ("thickness", thickness), ("w", w), ("h", h), ("at", at)):
+        if value is not None:
+            op[key] = value
+    if rot:
+        op["rot"] = rot
+    if to == "fixture" and not fixture_type:
+        raise ToolError(f"fixture_type is needed: one of {', '.join(FIXTURE_TYPES)}")
+    if to == "label" and not text:
+        raise ToolError("a label needs text")
+    summary = _op(op, f"converted {len(items) or 'a gap'} to {fixture_type or to}")
+    after = _get("/api/state").get("plan") or {}
+    summary["removed"] = [i for k, i in items if _lookup(after, k, i) is None]
+    return summary
+
+
+@mcp.tool()
+def merge_walls(ids: list[str] | None = None, use_selection: bool = False, thickness: float | str | None = None) -> dict:
+    """Merge parallel walls into one wall that covers them all: thin bars side by side that are really
+    one thick wall, or pieces of one wall broken in line. Keeps the longest one's id; doors and
+    windows move onto it, and walls joined to the old ends meet the new one. `thickness` sets the
+    result's thickness about its middle instead of the combined thickness."""
+    plan = _open_plan()
+    items = _items_for(plan, ids, use_selection)
+    walls = [i for k, i in items if k == "walls"]
+    if len(walls) != len(items):
+        raise ToolError("merge_walls takes walls only; use convert_objects for other objects")
+    op: dict[str, Any] = {"op": "merge_walls", "ids": walls}
+    if thickness is not None:
+        op["thickness"] = thickness
+    return _op(op, f"merged {', '.join(walls)}")
+
+
+def _in_region(box, region) -> bool:
+    if not region:
+        return True
+    x0, y0, x1, y1 = min(region[0], region[2]), min(region[1], region[3]), max(region[0], region[2]), max(region[1], region[3])
+    return not (box[2] < x0 or box[0] > x1 or box[3] < y0 or box[1] > y1)
+
+
+@mcp.tool()
+def find_stacked_walls(
+    region: list[float] | None = None,
+    ids: list[str] | None = None,
+    max_gap: float = 2.0,
+    apply: bool = False,
+) -> dict:
+    """Find walls that are really one wall: bars side by side of about the same length (a thick wall
+    or chase traced as thin bars), or pieces in line with a break of at most max_gap inches. Each
+    group lists its ids, why, and the merged wall it would become. Limit to a region [x0, y0, x1, y1]
+    inches or to ids. apply=true merges every group found as one undo step.
+    Raise max_gap (say 8) for walls drawn as two outline lines with white between them."""
+    plan = _open_plan()
+    body: dict[str, Any] = {"what": "stacked", "max_gap": max_gap}
+    if ids:
+        body["ids"] = [i for k, i in resolve(plan, ids) if k == "walls"]
+    groups = _post("/api/analyze", body)["groups"]
+    groups = [g for g in groups if _in_region(object_box(plan, "walls", {**g["merged"]}), region)]
+    if not apply or not groups:
+        return {"count": len(groups), "groups": groups}
+    members = [i for g in groups for i in g["ids"]]
+    summary = _op({"op": "merge_stacked", "ids": members, "max_gap": max_gap}, f"merged {len(groups)} groups of stacked walls")
+    summary["merged_groups"] = len(groups)
+    return summary
+
+
+@mcp.tool()
+def find_stray_bits(region: list[float] | None = None, max_length: float = 24, delete: bool = False) -> dict:
+    """Find short, thin walls that touch no real wall: usually letters of room names and captions, or
+    bits of symbols, picked up by the tracer. Blocky ones (columns) are skipped, but check each
+    cluster before deleting. Clustered roughly by word or symbol, each with ids and a box.
+    Look at a cluster with view_image(region=box, source='sheet') to read it, then convert_objects
+    (to='label' with the text, or to='erase' to white it out), or delete=true removes them all."""
+    plan = _open_plan()
+    groups = [g for g in _post("/api/analyze", {"what": "stray", "max_length": max_length})["groups"] if _in_region(g["box"], region)]
+    if not delete or not groups:
+        return {"count": len(groups), "walls": sum(len(g["ids"]) for g in groups), "groups": groups}
+    ids = [i for g in groups for i in g["ids"]]
+    summary = _op({"op": "delete_many", "items": [["walls", i] for i in ids]}, f"deleted {len(ids)} stray bits")
+    summary["deleted"] = ids
+    return summary
+
+
+@mcp.tool()
+def set_wall_thickness(
+    thickness: float | str,
+    ids: list[str] | None = None,
+    use_selection: bool = False,
+    keep: Literal["center", "up", "down", "left", "right"] = "center",
+) -> dict:
+    """Set the thickness of walls (by ids or the user's selection). keep names the face that stays
+    put, as seen on screen: up or down for walls running across, left or right for walls running
+    up and down; walls running the other way keep their center. Walls joined to a moved face follow."""
+    plan = _open_plan()
+    walls = [i for k, i in _items_for(plan, ids, use_selection) if k == "walls"]
+    if not walls:
+        raise ToolError("no walls given")
+    return _op({"op": "set_wall_thickness", "ids": walls, "thickness": thickness, "keep": keep}, f"set {len(walls)} walls to {thickness} thick")
+
+
 # ---------------------------------------------------------------- editing
 
 OPS_HELP = """
@@ -636,6 +915,11 @@ Operations (each a dict with "op"):
 - calibrate: {"op":"calibrate","p1":[px,py],"p2":[px,py],"length":"26'5\\""} (sheet pixels)
 - set_compass: {"op":"set_compass","up":"north"}; set_meta: {"op":"set_meta","name":..,"notes":..}
 - add_walls: {"op":"add_walls","walls":[...],"replace":false}
+- merge_walls: {"op":"merge_walls","ids":[WALL,...],"thickness":optional}: parallel walls become one.
+- merge_stacked: {"op":"merge_stacked","ids":optional,"max_gap":2}: merge every group of walls that are one.
+- set_wall_thickness: {"op":"set_wall_thickness","ids":[...],"thickness":6,"keep":"center"|"up"|"down"|"left"|"right"}
+- convert: {"op":"convert","items":[[K,ID],...],"to":"wall"|"door"|"window"|"fixture"|"counter"|"outline"|"label"|"erase",
+  "type":fixture type,"rot":..,"text":label,"wall":host,"width":..,"keep":false} (see convert_objects).
 Object fields: walls {id,x1,y1,x2,y2,thickness}; openings {id,wall,type:door|window,offset,width,
 hinge:start|end,swing:cw|ccw}; counters {id,x,y,w,h,overhang?:{edge,inches}} or {id,points:[[x,y],...]};
 fixtures {id,type,x,y,w,h,rot?} (x,y is the center; rot turns clockwise); labels {text,x,y,size_px?};
@@ -806,6 +1090,7 @@ def trace_walls(
     min_thickness_px: int = 3,
     max_thickness_px: int = 24,
     min_length_px: int = 12,
+    merge_stacked: bool = True,
 ) -> dict:
     """Auto-trace walls from the sheet: long, solid, dark bars become walls.
 
@@ -813,12 +1098,15 @@ def trace_walls(
     apply=true adds them (replace=true drops existing walls and openings first) as one undo step.
     dark: gray level (0-255) below which a pixel counts as ink. min/max_thickness_px: bar thickness
     range in pixels (raise the min to skip window and cabinet lines). min_length_px: drop shorter bars.
+    merge_stacked: join bars that touch side by side (a thick wall traced as thin ones) or in line.
+    Afterwards, find_stray_bits finds traced letters and symbol bits to delete or convert.
     """
     settings = {
         "dark": dark,
         "min_thickness_px": min_thickness_px,
         "max_thickness_px": max_thickness_px,
         "min_length_px": min_length_px,
+        "merge": merge_stacked,
     }
     if not apply:
         walls = _post("/api/trace", {"preview": True, "settings": settings})["walls"]
@@ -983,6 +1271,7 @@ def control_browser(
     action: Literal["open", "select", "zoom", "fit", "tool", "view", "message", "reload"],
     kind: Literal["walls", "openings", "counters", "fixtures", "labels", "erase", "flags"] | None = None,
     id: str | int | None = None,
+    ids: list[str] | None = None,
     region: list[float] | None = None,
     tool: Literal["select", "wall", "door", "window", "counter", "polygon", "fixture", "label", "erase", "calibrate", "flag"]
     | None = None,
@@ -996,8 +1285,9 @@ def control_browser(
 ) -> dict:
     """Drive the open editor page.
 
-    open: open the editor in the default browser. select: select kind/id (or clear with no id);
-    kind 'flags' with id F3 selects a flag. zoom: zoom to kind/id, or to region [x0, y0, x1, y1]
+    open: open the editor in the default browser. select: select kind/id, or several objects with
+    ids (w12, labels:3, ...), to show the user what you mean (or clear with neither); kind 'flags'
+    with id F3 selects a flag. zoom: zoom to kind/id, to ids, or to region [x0, y0, x1, y1]
     inches. fit: show the whole sheet.
     tool: switch the active tool. view: toggle sheet, erase regions, snapping, the 1" grid, the
     side panel, or set the sheet opacity (0-1). message: show text in the status bar.
@@ -1007,12 +1297,16 @@ def control_browser(
         webbrowser.open(URL + "/")
         return {"opened": URL + "/"}
     command: dict[str, Any] = {"action": action}
-    if action in ("select", "zoom") and kind and id is not None:
+    if action in ("select", "zoom") and ids:
+        command["keys"] = [f"{k}:{i}" for k, i in resolve(_open_plan(), ids)]
+        command["zoom"] = action == "zoom"
+        command["action"] = "select"
+    elif action in ("select", "zoom") and kind and id is not None:
         command["key"] = f"{kind}:{id}"
-    if action == "zoom" and region:
+    if action == "zoom" and region and "keys" not in command:
         command["box"] = region
-    if action == "zoom" and "key" not in command and "box" not in command:
-        raise ToolError("zoom needs kind and id, or a region")
+    if action == "zoom" and not {"key", "keys", "box"} & command.keys():
+        raise ToolError("zoom needs kind and id, ids, or a region")
     if action == "tool":
         if not tool:
             raise ToolError("action 'tool' needs tool")

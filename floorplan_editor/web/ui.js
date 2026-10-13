@@ -106,7 +106,10 @@ export function popOpen() {
 
 let menuCleanup = null;
 
-/** A menu at (x, y). Items are {label, keys, run, disabled, checked} or "-" for a divider, or {heading}. */
+/**
+ * A menu at (x, y). Items are {label, keys, accel, run, disabled} or "-" for a divider, or {heading}.
+ * `accel` is a single key that picks the item while the menu is open.
+ */
 export function showMenu(items, x, y) {
   hideMenu();
   const menu = $("menu");
@@ -130,7 +133,7 @@ export function showMenu(items, x, y) {
           },
         },
         el("span", { class: "menu-label" }, item.label),
-        item.keys ? el("kbd", {}, item.keys) : null,
+        item.keys || item.accel ? el("kbd", {}, item.keys || item.accel.toUpperCase()) : null,
       );
       buttons.push(b);
       return b;
@@ -146,7 +149,13 @@ export function showMenu(items, x, y) {
   };
   const onKey = (e) => {
     const i = buttons.indexOf(document.activeElement);
-    if (e.key === "Escape") {
+    const picked = !e.ctrlKey && !e.metaKey && !e.altKey && items.find((item) => item.accel && !item.disabled && item.accel.toLowerCase() === e.key.toLowerCase());
+    if (picked) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      hideMenu();
+      picked.run();
+    } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopImmediatePropagation();
       hideMenu();

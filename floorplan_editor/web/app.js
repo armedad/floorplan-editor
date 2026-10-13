@@ -32,6 +32,7 @@ const planLayer = $("plan-layer");
 const eraseLayer = $("erase-layer");
 const traceLayer = $("trace-layer");
 const flagLayer = $("flag-layer");
+const idLayer = $("id-layer");
 const uiLayer = $("ui-layer");
 
 export const FIXTURE_SIZES = {
@@ -65,8 +66,8 @@ export const app = {
   clipboard: null,
   tool: "select",
   view: { x: 20, y: 20, z: 1 },
-  show: { sheet: true, opacity: 0.55, erase: true, snap: true, grid: true, dims: true },
-  opts: { thickness: 4, doorWidth: 30, windowWidth: 36, fixtureType: "refrigerator", fixtureRot: 0, labelText: "", anchor: {} },
+  show: { sheet: true, opacity: 0.55, erase: true, snap: true, grid: true, dims: true, ids: false },
+  opts: { thickness: 4, doorWidth: 30, windowWidth: 36, fixtureType: "refrigerator", fixtureRot: 0, labelText: "", anchor: {}, thicknessKeep: "center" },
   drag: null,
   draft: null,
   cursor: null,
@@ -144,8 +145,11 @@ function runUiCommand(cmd) {
   };
   switch (cmd.action) {
     case "select":
-      select(cmd.key && getObject(cmd.key) ? cmd.key : null);
-      if (cmd.zoom && app.sel) zoomToSelection();
+      if (Array.isArray(cmd.keys)) selectKeys(cmd.keys, { zoom: !!cmd.zoom });
+      else {
+        select(cmd.key && getObject(cmd.key) ? cmd.key : null);
+        if (cmd.zoom && app.sel) zoomToSelection();
+      }
       break;
     case "zoom":
       if (cmd.key && getObject(cmd.key)) {
@@ -261,6 +265,46 @@ export function describeKey(key) {
 function setSelection(keys, primary = null) {
   app.selection = new Set(keys);
   app.sel = primary && app.selection.has(primary) ? primary : keys.length ? keys[keys.length - 1] : null;
+  reportSelection();
+}
+
+let reported = "";
+let reportTimer = 0;
+
+/** Tell the server what is selected, so Cursor can act on "what I selected". */
+function reportSelection() {
+  clearTimeout(reportTimer);
+  reportTimer = setTimeout(() => {
+    const keys = [...app.selection];
+    const text = keys.join("|");
+    if (text === reported) return;
+    reported = text;
+    api("/api/selection", { keys }).catch(() => {
+      reported = "";
+    });
+  }, 150);
+}
+
+export function selectKeys(keys, { zoom = false } = {}) {
+  setSelection(keys.filter((k) => getObject(k)));
+  afterSelect();
+  if (zoom && app.selection.size) zoomToSelection();
+}
+
+/** The selection's box in plan inches. */
+export function selectionBoxIn() {
+  const box = unionBox(selectionInfo().planKeys);
+  if (!box || !app.canvas) return null;
+  return [...app.canvas.toIn(box[0], box[1]), ...app.canvas.toIn(box[2], box[3])];
+}
+
+/** A screen point just below the selection, for menus and popovers about it. */
+export function selectionAnchor() {
+  const box = unionBox(selectionInfo().planKeys);
+  if (!box) return stageCenter();
+  const [sx, sy] = toScreen((box[0] + box[2]) / 2, box[3]);
+  const r = svg.getBoundingClientRect();
+  return [Math.max(r.left + 40, Math.min(r.right - 40, sx)), Math.max(r.top + 40, Math.min(r.bottom - 120, sy + 14))];
 }
 
 export function selectionInfo() {
@@ -317,6 +361,7 @@ export function selectAll() {
 function afterSelect() {
   markSelected();
   renderFlags();
+  renderIds();
   renderUI();
   renderProps(app);
   renderFlagsPanel();
@@ -493,6 +538,43 @@ function renderFlags() {
   flagLayer.innerHTML = flagsMarkup();
 }
 
+const ID_LIMIT = 900;
+
+/** Each object's id written on it, for naming objects to Cursor. Only what is in view, at a fixed screen size. */
+function renderIds() {
+  if (!app.plan || !app.show.ids) {
+    idLayer.innerHTML = "";
+    return;
+  }
+  const rect = svg.getBoundingClientRect();
+  const { x, y, z } = app.view;
+  const view = [-x / z, -y / z, (rect.width - x) / z, (rect.height - y) / z];
+  const k = 1 / z;
+  const size = (b) => (b[2] - b[0]) + (b[3] - b[1]);
+  const entries = [...app.objects.values(), ...eraseEntries()]
+    .filter((e) => e.box && !(e.box[2] < view[0] || e.box[0] > view[2] || e.box[3] < view[1] || e.box[1] > view[3]))
+    .sort((a, b) => app.selection.has(b.key) - app.selection.has(a.key) || size(b.box) - size(a.box));
+  const placed = [];
+  const parts = [];
+  for (const entry of entries) {
+    const [kind, id] = splitKey(entry.key);
+    const o = getObject(entry.key);
+    if (!o) continue;
+    const b = entry.box;
+    const [cx, cy] = kind === "walls" ? app.canvas.pt((o.x1 + o.x2) / 2, (o.y1 + o.y2) / 2) : [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+    const text = kind === "labels" ? `label ${id}` : String(id);
+    const sx = cx * z + x;
+    const sy = cy * z + y;
+    const half = text.length * 3.6 + 3;
+    if (placed.some(([px, py, ph]) => Math.abs(px - sx) < ph + half && Math.abs(py - sy) < 14)) continue;
+    placed.push([sx, sy, half]);
+    const cls = app.selection.has(entry.key) ? "id-tag selected" : "id-tag";
+    parts.push(`<text class="${cls}" transform="translate(${f2(cx)} ${f2(cy)}) scale(${k})">${esc(text)}</text>`);
+    if (parts.length >= ID_LIMIT) break;
+  }
+  idLayer.innerHTML = parts.join("");
+}
+
 export function renderAll() {
   renderSheet();
   renderPlan();
@@ -507,6 +589,7 @@ export function applyView() {
   world.setAttribute("transform", `translate(${v.x} ${v.y}) scale(${v.z})`);
   $("status-zoom").textContent = `${Math.round(v.z * 100)}%`;
   renderFlags();
+  renderIds();
   renderUI();
 }
 
@@ -779,14 +862,14 @@ function toolPrompt() {
       return d && d.pts.length ? `Click the next corner, ${typing}. Enter or double-click closes; Backspace removes a corner.` : "Click the first corner of the counter outline.";
     case "door":
     case "window":
-      return `Click a wall to add a ${app.tool} ${formatLength(app.tool === "door" ? app.opts.doorWidth : app.opts.windowWidth)} wide. Type a number to change the width.`;
+      return `Click a wall to add a ${app.tool} ${formatLength(app.tool === "door" ? app.opts.doorWidth : app.opts.windowWidth)} wide (type a number to change it), or click in a doorway gap to fill it exactly.`;
     case "counter":
     case "erase":
       return d && d.type === "rect"
         ? "Click the opposite corner, or type width, depth (25, 60) and press Enter."
         : `Drag a rectangle${app.tool === "erase" ? " over ink to white it out" : ""}, or click one corner and then type width, depth.`;
     case "fixture":
-      return `Click to place a ${app.opts.fixtureType.replace(/_/g, " ")}. R turns it 90°; size it exactly after placing.`;
+      return `Click to place a ${app.opts.fixtureType.replace(/_/g, " ")}, or drag over its symbol on the sheet to fit it. R turns it 90°.`;
     case "label":
       return "Click where the label goes.";
     case "calibrate":
@@ -963,6 +1046,25 @@ async function placeRect(kind, a, b) {
   if (ref) setTool("select");
 }
 
+/** A click places the fixture at its usual size; a drag fits it to the box drawn over the sheet's symbol. */
+async function placeFixture(a, b) {
+  const type = app.opts.fixtureType;
+  const bw = Math.abs(b[0] - a[0]);
+  const bh = Math.abs(b[1] - a[1]);
+  let obj;
+  if (bw < 3 || bh < 3) {
+    const [w, h] = FIXTURE_SIZES[type] || [24, 24];
+    obj = { type, x: a[0], y: a[1], w, h };
+    if (app.opts.fixtureRot) obj.rot = app.opts.fixtureRot;
+  } else {
+    const turned = app.opts.fixtureRot % 180 !== 0;
+    obj = { type, x: round2((a[0] + b[0]) / 2), y: round2((a[1] + b[1]) / 2), w: round2(turned ? bh : bw), h: round2(turned ? bw : bh) };
+    if (app.opts.fixtureRot) obj.rot = app.opts.fixtureRot;
+  }
+  const ref = await send({ op: "add", kind: "fixtures", obj });
+  if (ref) setTool("select");
+}
+
 function askLabel(p) {
   const [sx, sy] = toScreen(...app.canvas.pt(p.x, p.y));
   popInput({
@@ -1010,7 +1112,14 @@ async function toolDown(e) {
     const [wx, wy] = toWorld(e);
     const [x, y] = app.canvas.toIn(wx, wy);
     const hit = nearestWall(x, y);
-    if (!hit) return message("Click on a wall.", true);
+    if (!hit) {
+      const state = await call("/api/op", { op: { op: "convert", to: tool, at: [round2(x), round2(y)], gap_only: true } });
+      if (!state) return;
+      const o = getObject(`openings:${state.ref[1]}`);
+      message(`The doorway gap now has a ${formatLength(o.width)} ${tool}; the walls on each side joined into ${o.wall}.`);
+      setTool("select");
+      return;
+    }
     const obj = { wall: hit.wall.id, type: tool, width: tool === "door" ? app.opts.doorWidth : app.opts.windowWidth, at: [x, y] };
     if (tool === "door") Object.assign(obj, { hinge: "start", swing: "ccw" });
     const ref = await send({ op: "add", kind: "openings", obj });
@@ -1031,11 +1140,7 @@ async function toolDown(e) {
   }
   if (tool === "fixture") {
     const p = snapped(e);
-    const [w, h] = FIXTURE_SIZES[app.opts.fixtureType] || [24, 24];
-    const obj = { type: app.opts.fixtureType, x: p.x, y: p.y, w, h };
-    if (app.opts.fixtureRot) obj.rot = app.opts.fixtureRot;
-    const ref = await send({ op: "add", kind: "fixtures", obj });
-    if (ref) setTool("select");
+    app.drag = { type: "rect", kind: "fixtures", start: [p.x, p.y], cur: [p.x, p.y] };
     return;
   }
   if (tool === "label") {
@@ -1700,7 +1805,10 @@ window.addEventListener("pointerup", async (e) => {
   else if (d.type === "marquee") marqueeUp();
   else if (d.type === "flag-new") flagNewUp(e);
   else if (d.type === "flag-move") flagMoveUp();
-  else if (d.type === "rect") {
+  else if (d.type === "rect" && d.kind === "fixtures") {
+    app.drag = null;
+    await placeFixture(d.start, d.cur);
+  } else if (d.type === "rect") {
     app.drag = null;
     const [a, b] = [d.start, d.cur];
     if (Math.abs(b[0] - a[0]) < 0.5 || Math.abs(b[1] - a[1]) < 0.5) app.draft = { type: "rect", kind: d.kind, start: a, pts: [a] };
@@ -1874,6 +1982,10 @@ $("show-erase").addEventListener("change", (e) => {
 $("show-dims").addEventListener("change", (e) => {
   app.show.dims = e.target.checked;
   renderUI();
+});
+$("show-ids").addEventListener("change", (e) => {
+  app.show.ids = e.target.checked;
+  renderIds();
 });
 $("snap").addEventListener("change", (e) => (app.show.snap = e.target.checked));
 $("grid").addEventListener("change", (e) => (app.show.grid = e.target.checked));

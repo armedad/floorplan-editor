@@ -172,12 +172,15 @@ pastes at the pointer.
   degrees counterclockwise from right), and `48, -12` goes right and up by those amounts.
   Shift keeps a segment straight. Double-click, Enter, or Esc stops.
 - **Door (D)** and **Window (N).** Click on a wall to drop one there. Type a number first
-  to change the width. With a door selected, S flips the swing and H flips the hinge side.
+  to change the width. Click in the gap between two walls in line (a traced doorway) and
+  the two walls join into one with the door filling the gap. With a door selected, S flips
+  the swing and H flips the hinge side.
 - **Counter (C).** Drag a rectangle, or click one corner and type `width, depth` (`25, 60`).
 - **Outline (P).** Click each corner of a counter of any shape, such as an L, or type the
   edges like walls. Double-click or Enter closes it. Backspace removes the last corner.
-- **Fixture (X).** Pick a type and a rotation in the toolbar, then click to place it. The
-  click point is the fixture's center, which it rotates around. Types are refrigerator,
+- **Fixture (X).** Pick a type and a rotation in the toolbar, then click to place it at its
+  usual size, or drag a box over the printed symbol to fit it. A fixture's center is the
+  point it rotates around. Types are refrigerator,
   range, oven, dishwasher, toilet, tub, soaking tub, sink, washer, dryer, washer/dryer,
   stool, and generic. R turns the next placement, or a selected fixture, 90°.
 - **Label (T).** Click where the label goes and type it. Text typed in the toolbar box is
@@ -191,7 +194,48 @@ pastes at the pointer.
 
 Snapping is on by default. Points snap to wall ends and wall faces, then to a 1-inch grid.
 Both can be turned off under **View** in the side panel, which also controls the sheet
-image, its opacity, the measurements on the selection, and whether erase regions are shown.
+image, its opacity, the measurements on the selection, object ids, and whether erase
+regions are shown.
+
+### Cleaning up a trace: convert, merge, and thickness
+
+The tracer sees ink, not meaning, so a traced plan is all walls: door leaves, fixture
+outlines, and the letters of room names come out as short walls, and a thick wall often
+comes out as two or three thin ones side by side. These tools turn them into what they are.
+
+- **Convert… (Shift+C).** Select the pieces (drag a box around them, or Shift+click) and
+  choose what they are. Each choice has a one-key shortcut while the menu is open:
+  - **W, one wall.** Walls merge into one; anything else becomes a wall along the
+    selection's long side.
+  - **D, a door** or **N, a window.** If the selection includes the two walls on either side
+    of a gap, or sits in front of a gap, the walls join and the opening fills the gap.
+    Otherwise it goes on the nearest wall, as wide as the selection. A door swings toward
+    the side the selected leaf was drawn on. Long walls in the selection are kept.
+  - **X, a fixture.** Pick the type; the list is sorted by how well each type's usual size
+    matches the selection, and digits 1 to 9 pick from it. The fixture fills the
+    selection's box, turned to match.
+  - **C, a box counter**, **P, a counter outline**, **T, a label** (asks for the text and sizes
+    it to the selection), or **E, an erase region** that whites out the printed ink.
+
+  The selected pieces are removed and the new object is selected. Ctrl+Z undoes it.
+- **Merge (J).** Two or more walls running the same way become one: the outer faces of the
+  pieces set the new thickness, and the longest piece keeps its id. Doors and windows on
+  the pieces move to the merged wall, and walls joined to the pieces stay joined.
+- **Thickness (Shift+T)** sets one thickness for every selected wall. The side panel has the
+  same field, with **Stays put** to choose which face holds still (top or bottom for walls
+  running across, left or right for walls running up and down) so a wall can thicken into a
+  room without moving the other side.
+- **Clean up a trace**, under **Auto-trace walls** in the side panel:
+  - **Select stacked walls** selects walls that are really one: thin bars side by side, or
+    one wall broken in two along its length. Breaks where another wall joins are left alone.
+  - **Merge stacked (Shift+J)** merges each of those groups. With walls selected, it only
+    looks among them.
+  - **Select stray bits** selects short, thin walls that touch no real wall, which are
+    almost always traced letters or symbol pieces. Delete them, or Convert them to a label
+    or an erase region.
+- **Object ids (I)** shows every object's id on the drawing, so you can say "convert w74
+  and w75 into a door" to Cursor. **Ctrl+Shift+C** copies the selected ids. Cursor can also
+  see what you have selected, so "make what I selected a toilet" works too.
 
 ### Flags: pointing Cursor at things
 
@@ -243,12 +287,16 @@ the long, dark, solid bars on the sheet and offers them as walls:
    - **Thinnest wall** and **Thickest wall** set the bar thickness range, in pixels. Raise
      the thinnest to skip window and cabinet lines. Lower it to pick up thin partitions.
    - **Shortest wall** drops short bars, in pixels.
+   - **Merge bars side by side into thick walls** joins bars that lie side by side, about
+     the same length, into one thicker wall. It's on by default.
 3. Click **Add them** to add the walls. **Replace existing walls** clears the old ones first.
-4. Clean up by hand. Expect to delete stray bars around text and fixtures, join corners,
+4. Clean up (see [Cleaning up a trace](#cleaning-up-a-trace-convert-merge-and-thickness)):
+   select and delete the stray bits, convert door leaves and fixture outlines, join corners,
    and add the thin walls the tracer skipped.
 
-On the 220 Riverside 39C sheet, the default settings found 154 walls. They covered at least
-80% of the length of 84% of the thick walls in the hand-traced plan. Dropping the thinnest
+On the 220 Riverside 39C sheet, the default settings found 152 walls. They covered at least
+80% of the length of 84% of the thick walls in the hand-traced plan. **Select stray bits**
+finds 55 of them in 14 clusters, nearly all letters of the captions. Dropping the thinnest
 wall to 1 px found 488 walls and covered 93%, but needed much more cleanup.
 
 ## Keyboard shortcuts
@@ -272,6 +320,10 @@ Ctrl+K shows all of these, searchable.
 | R | Rotate the selected fixture 90° (Shift+R the other way), or the next fixture to place |
 | S, H | Flip the selected door's swing or hinge side |
 | Shift+F | Flag the selection |
+| Shift+C | Convert the selection to a wall, door, window, fixture, counter, label, or erase region |
+| J, Shift+J | Merge the selected walls into one; merge every group of stacked walls |
+| Shift+T | Set the selected walls' thickness |
+| I, Ctrl+Shift+C | Show or hide object ids; copy the selected ids |
 | Esc | Cancel the drawing in progress; press again to go back to Select, then again to clear the selection |
 | Z | Zoom to the selection |
 | 0 | Fit the whole sheet in view |
@@ -366,10 +418,18 @@ browser and say "do what F1 and F2 say." The tools:
 | Editor | `editor_status`, `start_editor` (starts `floorplan serve` in the background if needed, or switches folders), `stop_editor` |
 | Files and images | `open_anything` (a plan, folder, or image, recognized the same way as the browser's Open), `open_plan` (a name in the folder, or any plan JSON on disk), `import_file` (copy a plan or a sheet image into the folder), `new_plan_from_image` (with optional auto-trace) |
 | Flags | `list_flags` (each flag's note, place, and what it sits on or near), `add_flag`, `update_flag` (note, done, position), `delete_flags` |
-| Looking | `view_image` (overlay, sheet, plan alone, or any PNG in the folder, cropped to a region in inches or around a flag, with flags drawn on), `get_plan`, `find_objects` (by position, region, type, or text) |
-| Editing | `add_object`, `update_object`, `delete_objects`, `move_object`, `move_wall_end`, `split_wall`, `edit_counter_outline`, `flip_door`, `rotate_fixture`, `set_plan_properties` (name, notes, compass, scale), `trace_walls`, and `apply_ops` for any batch of edit operations as one undo step |
+| Looking | `view_image` (overlay, sheet, plan alone, or any PNG in the folder, cropped to a region in inches or around a flag, with flags drawn on; crops label every object's id, and `highlight` or the user's selection is outlined in blue), `get_plan`, `find_objects` (by position, region, type, or text), `get_objects` (full objects by id) |
+| What you selected | `get_selection` (the objects selected in the browser, their box, and whether the walls run the same way); `control_browser` with `ids` selects objects for you to look at |
+| Cleaning up a trace | `convert_objects` (ids or the selection into a wall, door, window, fixture, counter, outline, label, or erase region), `merge_walls`, `set_wall_thickness` (with the face that stays put), `find_stacked_walls` (and `apply` to merge them), `find_stray_bits` (and `delete`) |
+| Editing | `add_object`, `update_object`, `delete_objects`, `move_object`, `move_wall_end`, `split_wall`, `edit_counter_outline`, `flip_door`, `rotate_fixture`, `set_plan_properties` (name, notes, compass, scale), `trace_walls` (merging stacked bars unless `merge_stacked` is off), and `apply_ops` for any batch of edit operations as one undo step |
 | History and saving | `undo`, `redo`, `revert`, `save` (overwrite, next step, or a new name), `merge_steps` |
 | The page | `control_browser`: open the page, select, zoom to an object or region, fit, switch tools, toggle the sheet, erase regions, snapping, grid, and side panel, or show a message |
+
+Ids can be bare (`w12`, `toilet-1`) or kind-qualified (`walls:w12`, `labels:3`; labels have
+no id, so they go by their place in the list). A typical cleanup: Cursor calls
+`find_stray_bits`, looks at each cluster with `view_image(region=box, source="sheet")`, and
+converts the room names to labels; then `find_stacked_walls` with `apply`; then, for each
+doorway, `convert_objects(to="door", ids=[the two walls beside it])`.
 
 Edits stay in memory until a save, just like in the browser. Tools that would throw away
 unsaved edits (opening another file or folder, reverting, stopping) refuse unless you
@@ -396,7 +456,8 @@ floorplan mcp
 `overlay --erase-from` takes the traced base plan and whites out the sheet wherever the
 new plan removed or moved an object, in addition to the plan's own erase regions. `trace`
 accepts the same `--dark`, `--min-thickness`, `--max-thickness`, and `--min-length`
-settings as the editor's sliders, and `--no-walls` makes an empty plan.
+settings as the editor's sliders, `--no-merge` keeps side-by-side bars as separate walls,
+and `--no-walls` makes an empty plan.
 
 ## Development
 
@@ -405,7 +466,9 @@ C:\Users\CheeC\code\.venv\Scripts\python.exe -m pytest
 ```
 
 - The engine lives in `floorplan_editor/engine`: schema, rendering, overlays, merging,
-  edit operations, step folders, and tracing.
+  edit operations, step folders, and tracing. `analyze.py` finds stacked walls, stray bits,
+  and doorway gaps; the `convert`, `merge_walls`, `merge_stacked`, and `set_wall_thickness`
+  operations in `edit.py` use it.
 - The FastAPI server is `floorplan_editor/server/app.py`. `/api/events` streams changes and
   UI commands to open browsers.
 - The MCP server is `floorplan_editor/mcp_server.py`.
@@ -413,7 +476,8 @@ C:\Users\CheeC\code\.venv\Scripts\python.exe -m pytest
   step. `app.js` holds the state, drawing, and pointer handling; `commands.js` is the one
   list of commands behind the shortcuts, the action bar, the right-click menu, and Ctrl+K;
   `panels.js` builds the side panel; `measure.js` works out the measurements shown on a
-  selection; `open.js` handles Open and dropped files; `flags.js` draws and lists flags.
+  selection; `open.js` handles Open and dropped files; `flags.js` draws and lists flags;
+  `convert.js` has the Convert menu, merging, and thickness.
 - `geom.js` and `measure.js` have their own tests under `tests/web`, which pytest runs
   through Node when it is installed.
 

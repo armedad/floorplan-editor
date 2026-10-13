@@ -207,6 +207,53 @@ def test_flags_round_trip(live, sample_folder):
     assert json.loads((sample_folder / "flags.json").read_text())["next"] == 4
 
 
+def test_selection_and_analysis_endpoints(client):
+    assert client.post("/api/selection", json={"keys": ["walls:column", "labels:1", "walls:gone"]}).json()["keys"]
+    selected = client.get("/api/selection").json()
+    assert [(i["kind"], i["id"]) for i in selected["items"]] == [("walls", "column"), ("labels", 1)]
+    client.post("/api/op", json={"op": {"op": "add", "kind": "walls", "obj": {"x1": 160, "y1": 132, "x2": 160, "y2": 140, "thickness": 12}}})
+    groups = client.post("/api/analyze", json={"what": "stacked"}).json()["groups"]
+    assert any("column" in g["ids"] for g in groups)
+    assert client.post("/api/analyze", json={"what": "stray"}).json()["groups"] == []
+
+
+def test_resolve_takes_ids_keys_and_pairs(sample):
+    assert m.resolve(sample, ["toilet", "walls:column", "labels:2", ["openings", "bath-door"]]) == [
+        ["fixtures", "toilet"],
+        ["walls", "column"],
+        ["labels", 2],
+        ["openings", "bath-door"],
+    ]
+    with pytest.raises(m.ToolError, match="no object"):
+        m.resolve(sample, ["nope"])
+
+
+def test_tools_convert_merge_and_label_ids(live):
+    with httpx.Client(base_url=live) as client:
+        client.post("/api/selection", json={"keys": ["walls:column", "fixtures:stool-1"]})
+    selected = m.get_selection()
+    assert {i["id"] for i in selected["items"]} == {"column", "stool-1"} and len(selected["box"]) == 4
+    assert m.get_objects(["toilet"])["objects"][0]["kind"] == "fixtures"
+
+    out = m.convert_objects("fixture", use_selection=True, fixture_type="generic")
+    assert set(out["removed"]) == {"column", "stool-1"} and out["touched"]["object"]["type"] == "generic"
+    m.undo()
+
+    m.add_object("walls", {"id": "twin", "x1": 160, "y1": 132, "x2": 160, "y2": 120, "thickness": 4})
+    assert m.find_stacked_walls()["count"] == 0
+    found = m.find_stacked_walls(ids=["column", "twin"])
+    assert found["count"] == 1 and set(found["groups"][0]["ids"]) == {"column", "twin"}
+    merged = m.merge_walls(["column", "twin"], thickness="10")
+    assert merged["touched"]["object"]["thickness"] == 10
+    thick = m.set_wall_thickness(6, ids=["column"], keep="left")
+    assert thick["touched"]["object"]["x1"] == 158
+
+    image, caption = m.view_image("overlay", region=[140, 100, 180, 150], highlight=["column"])
+    assert "ids labeled" in caption and "walls:column" in caption
+    stray = m.find_stray_bits()
+    assert stray["count"] == 1 and stray["groups"][0]["ids"] == ["column"]
+
+
 def test_open_anything_turns_an_image_into_a_project(live, sample_folder, tmp_path):
     scan = tmp_path / "scan.png"
     scan.write_bytes((sample_folder / "sheet.png").read_bytes())

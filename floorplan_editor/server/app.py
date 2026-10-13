@@ -31,8 +31,9 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 from ..engine import PlanError, draw_png, load_plan, scene, validate_plan
+from ..engine.analyze import lookup, stray_bits, wall_groups
 from ..engine.edit import EditError, apply
-from ..engine.model import FIXTURE_TYPES, compass_from_up
+from ..engine.model import FIXTURE_TYPES, LIST_KEYS, compass_from_up
 from ..engine.overlay import apply_erase_regions, overlay_image
 from ..engine.steps import (
     BASE_NAME,
@@ -76,6 +77,7 @@ class Document:
         self.ui_log: list[tuple[int, dict]] = []
         self.ui_seq = 0
         self.browsers = 0
+        self.selection: list[str] = []
         self.open_folder(folder, sheet)
 
     def bump(self) -> None:
@@ -411,6 +413,7 @@ def _settings(body: dict) -> TraceSettings:
         min_thickness_px=int(raw.get("min_thickness_px", defaults.min_thickness_px)),
         max_thickness_px=int(raw.get("max_thickness_px", defaults.max_thickness_px)),
         min_length_px=int(raw.get("min_length_px", defaults.min_length_px)),
+        merge=bool(raw.get("merge", defaults.merge)),
     )
 
 
@@ -703,6 +706,49 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
                     doc.sheet_override = target
                 doc.bump()
             return doc.state(imported=name)
+
+    @app.post("/api/selection")
+    def set_selection(body: dict = Body(...)):
+        """The browser reports what the user has selected, so other clients can act on it."""
+        with doc.lock:
+            doc.selection = [str(k) for k in body.get("keys") or []]
+            return {"keys": doc.selection}
+
+    @app.get("/api/selection")
+    def get_selection():
+        """What the user has selected in the browser: keys like walls:w12, with each object."""
+        with doc.lock:
+            plan = doc.plan or {}
+            items = []
+            for key in doc.selection:
+                kind, _, ref = key.partition(":")
+                if kind == "flags":
+                    flag = next((f for f in doc.flags.listing(plan.get("canvas")) if f["id"] == ref), None)
+                    if flag:
+                        items.append({"kind": "flags", "id": ref, "object": flag})
+                    continue
+                obj = lookup(plan, kind, int(ref) if kind == "labels" and ref.isdigit() else ref) if kind in LIST_KEYS else None
+                if obj is not None:
+                    items.append({"kind": kind, "id": int(ref) if kind == "labels" else ref, "object": obj})
+            return {"keys": doc.selection, "items": items, "browsers": doc.browsers}
+
+    @app.post("/api/analyze")
+    def analyze(body: dict = Body(default={})):
+        """Find walls that are really one (what: stacked) or stray short bits like letters (what: stray)."""
+        with doc.lock:
+            plan = doc.require_plan()
+            ids = body.get("ids") or None
+            if body.get("what") == "stray":
+                return {"groups": stray_bits(plan, ids, max_length=float(body.get("max_length", 24)))}
+            return {
+                "groups": wall_groups(
+                    plan,
+                    ids,
+                    max_gap=float(body.get("max_gap", 2)),
+                    min_overlap=float(body.get("min_overlap", 0.75)),
+                    skip_stray=not ids,
+                )
+            }
 
     @app.post("/api/ui")
     def ui(body: dict = Body(...)):

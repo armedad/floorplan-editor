@@ -11,8 +11,9 @@ from __future__ import annotations
 import copy
 import math
 
-from .geometry import parse_length, project, wall_length
-from .model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS, compass_from_up
+from .analyze import Frame, doorway, gap_among, items_box, merged_geometry, nearest_wall, parallel, wall_groups
+from .geometry import along, parse_length, project, wall_length
+from .model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS, SIDE_VEC, compass_from_up
 
 JOIN_TOL = 1.0
 ID_PREFIX = {"walls": "wall", "openings": "door", "counters": "counter", "fixtures": "fixture", "erase": "erase"}
@@ -521,6 +522,263 @@ def op_add_walls(plan: dict, op: dict):
     return None
 
 
+# ---------------------------------------------------------------- merging and converting
+
+
+def _length(value) -> float:
+    return parse_length(value) if isinstance(value, str) else float(value)
+
+
+def _line_hit(wall: dict, end: str, target: dict) -> tuple[float, float] | None:
+    """Where the line of `wall` crosses the centerline of `target`, for moving `end` onto it."""
+    if parallel(wall, target, 10):
+        return None
+    f, g = Frame(wall), Frame(target)
+    ex, ey = _get_end(wall, end)
+    denom = f.ux * g.ny - f.uy * g.nx
+    if abs(denom) < 1e-9:
+        return None
+    _, s = g.ts(ex, ey)
+    k = -s / denom
+    return ex + f.ux * k, ey + f.uy * k
+
+
+def merge_into_one(plan: dict, walls: list[dict], thickness: float | None = None) -> dict:
+    """Replace parallel walls with one wall that covers them, keeping the longest one's id.
+    Doors and windows move onto it, and wall ends that were joined to the old walls meet the new one."""
+    try:
+        fields, keep = merged_geometry(walls, thickness)
+    except ValueError as exc:
+        raise EditError(str(exc)) from exc
+    ids = {w["id"] for w in walls}
+    moved = []
+    for opening in plan.get("openings", []):
+        if opening["wall"] in ids:
+            host = find(plan, "walls", opening["wall"])
+            moved.append((opening, along(host, float(opening["offset"]) + float(opening["width"]) / 2)))
+    group_ends = {(w["id"], e) for w in walls for e in ("start", "end")}
+    joined = []
+    for wall in walls:
+        for end in ("start", "end"):
+            joined += _endpoints_at(plan, *_get_end(wall, end), JOIN_TOL, group_ends)
+    keep.update(fields)
+    plan["walls"] = [w for w in plan["walls"] if w is keep or w["id"] not in ids]
+    for opening, (cx, cy) in moved:
+        opening["wall"] = keep["id"]
+        t, _, _ = project(keep, cx, cy)
+        opening["offset"] = _r(t - float(opening["width"]) / 2)
+    clamp_openings(plan, keep["id"])
+    reach = float(keep["thickness"]) + 2
+    for wall, end in joined:
+        hit = _line_hit(wall, end, keep)
+        if hit and math.hypot(hit[0] - _get_end(wall, end)[0], hit[1] - _get_end(wall, end)[1]) <= reach:
+            _set_end(wall, end, *hit)
+            clamp_openings(plan, wall["id"])
+    return keep
+
+
+def op_merge_walls(plan: dict, op: dict):
+    """Merge parallel walls (bars side by side, or pieces in line) into one, optionally at a set thickness."""
+    ids = list(op["ids"])
+    if len(ids) < 2:
+        raise EditError("merging needs at least two walls")
+    walls = [find(plan, "walls", i) for i in ids]
+    thickness = _length(op["thickness"]) if op.get("thickness") else None
+    return ["walls", merge_into_one(plan, walls, thickness)["id"]]
+
+
+def op_merge_stacked(plan: dict, op: dict):
+    """Find walls that are really one (side by side or broken in line) and merge each group."""
+    ids = op.get("ids")
+    groups = wall_groups(
+        plan,
+        ids,
+        max_gap=float(op.get("max_gap", 2)),
+        min_overlap=float(op.get("min_overlap", 0.75)),
+        skip_stray=not ids,
+    )
+    if not groups:
+        where = "among the selected walls" if ids else "in the plan"
+        raise EditError(f"no stacked or broken walls found {where}")
+    refs = []
+    for group in groups:
+        refs.append(["walls", merge_into_one(plan, [find(plan, "walls", i) for i in group["ids"]])["id"]])
+    return refs
+
+
+def op_set_wall_thickness(plan: dict, op: dict):
+    """Set walls' thickness. `keep` names the face that stays put (up, down, left, right on screen),
+    or center; a wall running the same way as that side keeps its center."""
+    ids = op["ids"] if "ids" in op else [op["id"]]
+    thickness = _length(op["thickness"])
+    if thickness <= 0:
+        raise EditError("thickness must be more than 0")
+    keep = op.get("keep", "center")
+    if keep != "center" and keep not in SIDE_VEC:
+        raise EditError("keep must be center, up, down, left, or right")
+    refs = []
+    for wall_id in ids:
+        wall = find(plan, "walls", wall_id)
+        delta = thickness - float(wall["thickness"])
+        if keep != "center":
+            frame = Frame(wall)
+            sx, sy = SIDE_VEC[keep]
+            facing = frame.nx * sx + frame.ny * sy
+            if abs(facing) >= 0.3 and delta:
+                sign = 1 if facing > 0 else -1
+                shift = -sign * delta / 2
+                op_move(plan, {"kind": "walls", "id": wall_id, "dx": frame.nx * shift, "dy": frame.ny * shift, "join": op.get("join", True)})
+        wall["thickness"] = _r(thickness)
+        refs.append(["walls", wall_id])
+    return refs if len(refs) > 1 else refs[0]
+
+
+CONVERT_TARGETS = ("wall", "door", "window", "fixture", "counter", "outline", "label", "erase")
+DEFAULT_WIDTH = {"door": 30.0, "window": 36.0}
+HOST_LENGTH = 48.0
+
+
+def _convert_opening(plan: dict, op: dict, items: list, box, at) -> tuple[dict, set]:
+    """Place a door or window from the selection's box, or the point `at`. Returns the opening
+    and the ids of selected walls that stay (the wall it sits on, and any long walls).
+
+    A given `wall` hosts it. Otherwise a gap between two walls in line, near the selection, is the
+    doorway: the two walls join into one and the opening fills the gap. Otherwise it goes on the
+    nearest wall, as wide as the selection along it."""
+    kind = op["to"]
+    selected = {ref for k, ref in items if k == "walls"}
+    long_walls = {ref for ref in selected if (wall_length(find(plan, "walls", ref)) or 0) >= HOST_LENGTH}
+    cx, cy = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2) if box else (float(at[0]), float(at[1]))
+    width = _length(op["width"]) if op.get("width") else None
+    gap = None
+    if not op.get("wall"):
+        gap = (gap_among(plan, selected) if box else None) or doorway(plan, cx, cy, prefer=selected)
+    if gap is not None:
+        a, b = find(plan, "walls", gap["a"]), find(plan, "walls", gap["b"])
+        host = merge_into_one(plan, [a, b], max(float(a["thickness"]), float(b["thickness"])))
+        t0, _, _ = project(host, *gap["start"])
+        t1, _, _ = project(host, *gap["end"])
+        t0, t1 = min(t0, t1), max(t0, t1)
+        keep = long_walls | {gap["a"], gap["b"]}
+    elif op.get("gap_only"):
+        raise EditError(f"no doorway gap there for a {kind}: click on a wall, or between the ends of two walls in line")
+    else:
+        if op.get("wall"):
+            host = find(plan, "walls", op["wall"])
+        else:
+            reach = max(HOST_LENGTH, (box[2] - box[0]) if box else 0, (box[3] - box[1]) if box else 0)
+            host = nearest_wall(plan, cx, cy, skip=selected - long_walls, reach=reach)
+            if host is None:
+                raise EditError(f"no wall to put the {kind} on: select the walls on both sides of the doorway, or name the wall")
+        keep = long_walls | {host["id"]}
+        frame = Frame(host)
+        drawn = items_box(plan, [(k, r) for k, r in items if not (k == "walls" and r == host["id"])])
+        if drawn:
+            ts = [frame.ts(x, y)[0] for x in (drawn[0], drawn[2]) for y in (drawn[1], drawn[3])]
+            t0, t1 = max(0.0, min(ts)), min(frame.length, max(ts))
+        else:
+            t, _ = frame.ts(cx, cy)
+            t0 = t1 = t
+        if t1 - t0 < 12 and not width:
+            width = DEFAULT_WIDTH[kind]
+    if width:
+        mid = (t0 + t1) / 2
+        t0, t1 = mid - width / 2, mid + width / 2
+    opening: dict = {"type": kind, "wall": host["id"], "offset": _r(t0), "width": _r(t1 - t0)}
+    if kind == "door":
+        opening["hinge"] = op.get("hinge", "start")
+        swing = op.get("swing")
+        if not swing:
+            _, s = Frame(host).ts(cx, cy)
+            direction = -1 if opening["hinge"] == "end" else 1
+            swing = "ccw" if abs(s) < 1 else ("cw" if (1 if s > 0 else -1) * direction == 1 else "ccw")
+        opening["swing"] = swing
+    return opening, keep
+
+
+def op_convert(plan: dict, op: dict):
+    """Replace objects (usually traced walls) with what they really are, sized to their box.
+
+    to: wall (several walls merge into one), door or window (on the wall or doorway they're in),
+    fixture (type, rot), counter, outline, label (text), or erase (white out the sheet there).
+    `at` [x, y] can stand in for items when placing a door or window in a doorway gap.
+    keep: true leaves the original objects in place."""
+    to = op.get("to")
+    if to not in CONVERT_TARGETS:
+        raise EditError(f"to must be one of {', '.join(CONVERT_TARGETS)}")
+    items = [tuple(i) for i in _items(op)] if op.get("items") else []
+    for kind, ref in items:
+        find(plan, kind, ref)
+    at = op.get("at")
+    if not items and not (at and to in ("door", "window")):
+        raise EditError("convert needs items (or a point `at` for a door or window)")
+    box = items_box(plan, items) if items else None
+    if items and box is None:
+        raise EditError("the selection has no size to convert")
+    keep_ids: set = set()
+    if to == "wall":
+        walls = [find(plan, "walls", ref) for kind, ref in items if kind == "walls"]
+        thickness = _length(op["thickness"]) if op.get("thickness") else None
+        if len(walls) == len(items) and len(walls) >= 2:
+            new = merge_into_one(plan, walls, thickness)
+            return ["walls", new["id"]]
+        if len(walls) == len(items) == 1:
+            return op_set_wall_thickness(plan, {"ids": [walls[0]["id"]], "thickness": thickness}) if thickness else ["walls", walls[0]["id"]]
+        x0, y0, x1, y1 = box
+        if x1 - x0 >= y1 - y0:
+            cy = (y0 + y1) / 2
+            obj = {"x1": _r(x0), "y1": _r(cy), "x2": _r(x1), "y2": _r(cy), "thickness": _r(thickness or max(y1 - y0, 0.5))}
+        else:
+            cx = (x0 + x1) / 2
+            obj = {"x1": _r(cx), "y1": _r(y0), "x2": _r(cx), "y2": _r(y1), "thickness": _r(thickness or max(x1 - x0, 0.5))}
+        kind = "walls"
+    elif to in ("door", "window"):
+        obj, keep_ids = _convert_opening(plan, op, items, box, at)
+        kind = "openings"
+    else:
+        x0, y0, x1, y1 = box
+        w, h = max(x1 - x0, 1.0), max(y1 - y0, 1.0)
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        if to == "fixture":
+            ftype = op.get("type", "generic")
+            if ftype not in FIXTURE_TYPES:
+                raise EditError(f"fixture type must be one of {', '.join(FIXTURE_TYPES)}")
+            rot = float(op.get("rot", 0)) % 360
+            fw, fh = (w, h) if round(rot / 90) % 2 == 0 else (h, w)
+            fw = _length(op["w"]) if op.get("w") else fw
+            fh = _length(op["h"]) if op.get("h") else fh
+            obj = {"type": ftype, "x": _r(cx), "y": _r(cy), "w": _r(fw), "h": _r(fh)}
+            if rot:
+                obj["rot"] = int(rot) if rot == int(rot) else _r(rot)
+            kind = "fixtures"
+        elif to == "counter":
+            obj, kind = {"x": _r(x0), "y": _r(y0), "w": _r(w), "h": _r(h)}, "counters"
+        elif to == "outline":
+            obj = {"points": [[_r(x0), _r(y0)], [_r(x0 + w), _r(y0)], [_r(x0 + w), _r(y0 + h)], [_r(x0), _r(y0 + h)]]}
+            kind = "counters"
+        elif to == "label":
+            text = str(op.get("text") or "").strip()
+            if not text:
+                raise EditError("a label needs text")
+            scale = float(plan["canvas"]["px_per_inch"])
+            size = op.get("size_px") or max(8, min(72, round((y1 - y0) * scale)))
+            obj, kind = {"text": text, "x": _r(cx), "y": _r(cy), "size_px": size}, "labels"
+        else:
+            pad = float(op.get("pad", 1))
+            obj = {"x": _r(x0 - pad), "y": _r(y0 - pad), "w": _r(w + 2 * pad), "h": _r(h + 2 * pad)}
+            kind = "erase"
+    if op.get("id") and kind != "labels":
+        obj["id"] = op["id"]
+    if not op.get("keep"):
+        gone = [(k, r) for k, r in items if not (k == "walls" and r in keep_ids)]
+        if gone:
+            op_delete_many(plan, {"items": [list(i) for i in gone]})
+    ref = op_add(plan, {"kind": kind, "obj": obj})
+    if kind == "openings":
+        clamp_openings(plan, obj["wall"])
+    return ref
+
+
 def op_batch(plan: dict, op: dict):
     ref = None
     for sub in op["ops"]:
@@ -549,6 +807,10 @@ OPS = {
     "set_compass": op_set_compass,
     "set_meta": op_set_meta,
     "add_walls": op_add_walls,
+    "merge_walls": op_merge_walls,
+    "merge_stacked": op_merge_stacked,
+    "set_wall_thickness": op_set_wall_thickness,
+    "convert": op_convert,
 }
 
 

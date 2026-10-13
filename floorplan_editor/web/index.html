@@ -43,6 +43,7 @@
             <g id="plan-layer"></g>
             <g id="erase-layer"></g>
             <g id="trace-layer"></g>
+            <g id="id-layer"></g>
             <g id="flag-layer"></g>
             <g id="ui-layer"></g>
           </g>
@@ -102,17 +103,19 @@
           <label class="row"><input type="checkbox" id="show-sheet" checked /> Sheet image</label>
           <label class="row">Opacity <input type="range" id="sheet-opacity" min="0" max="1" step="0.05" value="0.55" /></label>
           <label class="row"><input type="checkbox" id="show-dims" checked /> Measurements on the selection</label>
+          <label class="row"><input type="checkbox" id="show-ids" /> Object ids (I), for naming things to Cursor</label>
           <label class="row"><input type="checkbox" id="show-erase" checked /> Erase regions</label>
           <label class="row"><input type="checkbox" id="snap" checked /> Snap to corners and walls</label>
           <label class="row"><input type="checkbox" id="grid" checked /> Snap to 1&Prime; grid</label>
         </details>
         <details id="trace-panel">
           <summary><h2>Auto-trace walls</h2></summary>
-          <p class="note">Finds long dark bars on the sheet. Preview, adjust, then add them and clean up by hand.</p>
+          <p class="note">Finds long dark bars on the sheet. Preview, adjust, then add them and clean up below.</p>
           <label class="row">Ink darker than <input type="range" id="tr-dark" min="20" max="240" value="110" /><output for="tr-dark"></output></label>
           <label class="row">Thinnest wall (px) <input type="range" id="tr-min" min="1" max="20" value="3" /><output for="tr-min"></output></label>
           <label class="row">Thickest wall (px) <input type="range" id="tr-max" min="4" max="60" value="24" /><output for="tr-max"></output></label>
           <label class="row">Shortest wall (px) <input type="range" id="tr-len" min="4" max="120" value="12" /><output for="tr-len"></output></label>
+          <label class="row"><input type="checkbox" id="tr-merge" checked /> Merge bars side by side into thick walls</label>
           <div class="row wrap">
             <button id="trace-preview">Preview</button>
             <button id="trace-clear">Clear preview</button>
@@ -120,6 +123,13 @@
             <button id="trace-apply" class="primary">Add them</button>
           </div>
           <div id="trace-note" class="note"></div>
+          <h3>Clean up a trace</h3>
+          <p class="note">Tracing sees ink, not meaning. Box-select the pieces of a door, fixture, or label and Convert them (Shift+C). These find the common leftovers; with walls selected they look only there.</p>
+          <div class="row wrap">
+            <button id="clean-stacked">Select stacked walls</button>
+            <button id="clean-merge">Merge stacked (Shift+J)</button>
+            <button id="clean-stray">Select stray bits</button>
+          </div>
         </details>
       </aside>
     </main>

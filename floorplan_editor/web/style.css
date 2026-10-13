@@ -503,6 +503,33 @@ dialog label {
   fill: #00897b;
 }
 
+/* object ids on the drawing */
+#id-layer {
+  pointer-events: none;
+}
+.id-tag {
+  font: 600 11px "Segoe UI", system-ui, sans-serif;
+  fill: #263238;
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 3px;
+  paint-order: stroke;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.id-tag.selected {
+  fill: #1565c0;
+}
+#trace-panel h3 {
+  font-size: 12px;
+  margin: 14px 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5c6670;
+}
+.note.ids {
+  word-break: break-word;
+}
+
 /* flags */
 .flag-tool.active,
 button.flag-tool:hover {
