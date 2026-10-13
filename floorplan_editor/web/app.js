@@ -22,6 +22,7 @@ import {
 } from "./geom.js";
 import { dimsFor, opForDim } from "./measure.js";
 import { initOpen, renderEmpty } from "./open.js";
+import { loadSheetInk, placeLabels } from "./placement.js";
 import { initPanels, renderFiles, renderProps } from "./panels.js";
 import { hideTip, initTips } from "./help.js";
 import { $, popInput, popOpen } from "./ui.js";
@@ -77,8 +78,10 @@ export const app = {
   hoverEnd: null,
   handles: [],
   dims: [],
-  // Screen-pixel offsets of measurement labels the user dragged aside, by "kind:id:dimKey".
+  // Screen-pixel offsets of measurement labels from their spot on the line, by "kind:id:dimKey":
+  // where the user dragged them, and where they were last placed automatically.
   dimNudge: new Map(),
+  dimAuto: new Map(),
   sheetKey: "",
   sheetVersion: 0,
   fittedFor: null,
@@ -490,6 +493,7 @@ function renderSheet() {
     app.sheetKey = key;
     app.sheetVersion += 1;
     sheetEl.setAttribute("href", `/api/sheet?v=${app.sheetVersion}`);
+    loadSheetInk(`/api/sheet?v=${app.sheetVersion}`, s.sheet.width, () => renderUI());
   }
   sheetEl.setAttribute("width", s.sheet.width);
   sheetEl.setAttribute("height", s.sheet.height);
@@ -754,17 +758,39 @@ function dimsMarkup() {
   if (!app.show.dims || app.tool !== "select" || info.n !== 1 || !info.planKeys.length || busy) return "";
   app.dims = dimsFor(app.plan, info.kind, info.id);
   const c = app.canvas;
+  const geo = app.dims.map((d) => {
+    const [ax, ay] = c.pt(...d.a);
+    const [bx, by] = c.pt(...d.b);
+    const [nx, ny] = d.normal;
+    const off = nx || ny ? (d.pad || 0) * c.scale + px(d.gap ? 16 : 24) : 0;
+    const A = [ax + nx * off, ay + ny * off];
+    const B = [bx + nx * off, by + ny * off];
+    const len = Math.hypot(B[0] - A[0], B[1] - A[1]);
+    const [ux, uy] = len ? [(B[0] - A[0]) / len, (B[1] - A[1]) / len] : [1, 0];
+    const w = d.label.length * 7 + 12;
+    let home = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+    const need = (w + 8) * px(1);
+    if (d.gap && len < need) {
+      const before = d.key.endsWith("start");
+      const [ex, ey] = before ? A : B;
+      const k = (before ? -1 : 1) * (need / 2 + px(2));
+      home = [ex + ux * k, ey + uy * k];
+    }
+    d.nudgeKey = `${info.kind}:${info.id}:${d.key}`;
+    const nudge = app.dimNudge.get(d.nudgeKey);
+    return { a: [ax, ay], b: [bx, by], A, B, off, len, u: [ux, uy], w, home, nudge, mid: [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2] };
+  });
+  const spots = placeLabels(
+    geo.map((g) => ({ home: g.home, w: g.w * px(1), h: 18 * px(1), fixed: g.nudge ? [g.home[0] + g.nudge[0] * px(1), g.home[1] + g.nudge[1] * px(1)] : null })),
+    labelScene(geo),
+  );
   const sw = px(1);
   return app.dims
     .map((d, i) => {
-      const [ax, ay] = c.pt(...d.a);
-      const [bx, by] = c.pt(...d.b);
+      const g = geo[i];
+      const { A, B, off, len } = g;
       const [nx, ny] = d.normal;
-      const off = nx || ny ? (d.pad || 0) * c.scale + px(d.gap ? 16 : 24) : 0;
-      const A = [ax + nx * off, ay + ny * off];
-      const B = [bx + nx * off, by + ny * off];
-      const len = Math.hypot(B[0] - A[0], B[1] - A[1]);
-      const [ux, uy] = len ? [(B[0] - A[0]) / len, (B[1] - A[1]) / len] : [1, 0];
+      const [ux, uy] = g.u;
       const t = px(4);
       const tick = ([x, y]) => {
         const [tx, ty] = [(ux - uy) * t, (uy + ux) * t];
@@ -773,40 +799,54 @@ function dimsMarkup() {
       let s = `<g class="dim${d.gap ? " gap" : ""}" data-dim-line="${i}" style="--dim: ${d.color}" stroke-width="${sw}">`;
       if (off) {
         for (const [p, q] of [
-          [[ax, ay], A],
-          [[bx, by], B],
+          [g.a, A],
+          [g.b, B],
         ]) {
           s += `<line class="ext" x1="${f2(p[0] + nx * px(3))}" y1="${f2(p[1] + ny * px(3))}" x2="${f2(q[0] + nx * px(4))}" y2="${f2(q[1] + ny * px(4))}"/>`;
         }
       }
       if (len > px(2)) s += `<line x1="${f2(A[0])}" y1="${f2(A[1])}" x2="${f2(B[0])}" y2="${f2(B[1])}"/>${tick(A)}${tick(B)}`;
-      const w = d.label.length * 7 + 12;
-      let [mx, my] = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
-      const need = (w + 8) * px(1);
-      if (d.gap && len < need) {
-        const before = d.key.endsWith("start");
-        const [ex, ey] = before ? A : B;
-        const k = (before ? -1 : 1) * (need / 2 + px(2));
-        [mx, my] = [ex + ux * k, ey + uy * k];
-      }
-      d.nudgeKey = `${info.kind}:${info.id}:${d.key}`;
-      const nudge = app.dimNudge.get(d.nudgeKey);
-      if (nudge) {
-        const [lx, ly] = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
-        mx += nudge[0] * px(1);
-        my += nudge[1] * px(1);
+      const [mx, my] = spots[i];
+      d.offset = [(mx - g.home[0]) / px(1), (my - g.home[1]) / px(1)];
+      if (!g.nudge) app.dimAuto.set(d.nudgeKey, d.offset);
+      if (Math.hypot(...d.offset) > LEADER_MIN) {
+        const [lx, ly] = g.mid;
         s +=
           `<line class="leader" x1="${f2(lx)}" y1="${f2(ly)}" x2="${f2(mx)}" y2="${f2(my)}" style="stroke-width: ${px(1.5)}; stroke-dasharray: ${px(1)} ${px(4)}"/>` +
           `<circle class="leader-dot" cx="${f2(lx)}" cy="${f2(ly)}" r="${f2(px(3))}"/>`;
       }
       s += "</g>";
-      const tipText = `${d.title}: ${d.what} ${d.effect} Click to type a value; drag to move the label out of the way${nudge ? " (drop it back on its line to reattach it)" : ""}.`;
+      const tipText = `${d.title}: ${d.what} ${d.effect} Click to type a value; drag to move the label${g.nudge ? " (drop it back on its line to let it find its own spot again)" : ""}.`;
+      const w = g.w;
       s +=
-        `<g class="dim-label${d.gap ? " gap" : ""}${nudge ? " nudged" : ""}" data-dim="${i}" role="button" aria-label="${esc(d.title)}: ${esc(d.label)}" data-tip="${esc(tipText)}" style="--dim: ${d.color}" transform="translate(${f2(mx)} ${f2(my)}) scale(${px(1)})">` +
+        `<g class="dim-label${d.gap ? " gap" : ""}${g.nudge ? " nudged" : ""}" data-dim="${i}" role="button" aria-label="${esc(d.title)}: ${esc(d.label)}" data-tip="${esc(tipText)}" style="--dim: ${d.color}" transform="translate(${f2(mx)} ${f2(my)}) scale(${px(1)})">` +
         `<rect x="${-w / 2}" y="-9" width="${w}" height="18" rx="9"/><text y="4" text-anchor="middle">${esc(d.label)}</text></g>`;
       return s;
     })
     .join("");
+}
+
+const LEADER_MIN = 12;
+
+/** What measurement labels should avoid, in world units. */
+function labelScene(geo) {
+  const rect = svg.getBoundingClientRect();
+  const z = app.view.z;
+  const toWorldBox = (r) => [(r.left - rect.left - app.view.x) / z, (r.top - rect.top - app.view.y) / z, (r.right - rect.left - app.view.x) / z, (r.bottom - rect.top - app.view.y) / z];
+  const blocked = ["actionbar", "hint"].map($).filter((n) => n && !n.hidden).map((n) => toWorldBox(n.getBoundingClientRect()));
+  const lines = [];
+  geo.forEach((g, i) => {
+    if (g.len > px(2)) lines.push([g.A, g.B, i]);
+    if (g.off) lines.push([g.a, g.A, i], [g.b, g.B, i]);
+  });
+  return {
+    px: px(1),
+    boxes: [...app.objects.values()].map((e) => e.box).filter(Boolean),
+    lines,
+    view: toWorldBox({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }),
+    blocked,
+    useInk: !!sheetOn(),
+  };
 }
 
 export function renderUI() {
@@ -1766,7 +1806,7 @@ svg.addEventListener("pointerdown", async (e) => {
   const dimEl = e.target.closest && e.target.closest("[data-dim]");
   if (dimEl) {
     const d = app.dims[Number(dimEl.dataset.dim)];
-    if (d) app.drag = { type: "dim-drag", dim: d, sx: e.clientX, sy: e.clientY, from: app.dimNudge.get(d.nudgeKey) || [0, 0], moved: false };
+    if (d) app.drag = { type: "dim-drag", dim: d, sx: e.clientX, sy: e.clientY, from: d.offset || [0, 0], moved: false };
     return;
   }
   const flagEl = e.target.closest && e.target.closest("g.flag");
@@ -1885,7 +1925,8 @@ function dimDragUp(d) {
     return;
   }
   const nudge = app.dimNudge.get(d.dim.nudgeKey);
-  if (nudge && Math.hypot(...nudge) < REATTACH) app.dimNudge.delete(d.dim.nudgeKey);
+  const auto = app.dimAuto.get(d.dim.nudgeKey) || [0, 0];
+  if (nudge && (Math.hypot(...nudge) < REATTACH || Math.hypot(nudge[0] - auto[0], nudge[1] - auto[1]) < REATTACH)) app.dimNudge.delete(d.dim.nudgeKey);
 }
 
 window.addEventListener("pointerup", async (e) => {
