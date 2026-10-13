@@ -259,7 +259,7 @@ def op_split_wall(plan: dict, op: dict):
     if t < 1 or t > length - 1:
         raise EditError("split point is too close to the end of the wall")
     new = dict(wall)
-    new["id"] = op.get("new_id") or new_id(plan, f"{wall['id']}-b")
+    new["id"] = op.get("new_id") or new_id(plan, wall["id"])
     new["x1"], new["y1"] = _r(sx), _r(sy)
     wall["x2"], wall["y2"] = _r(sx), _r(sy)
     index = plan["walls"].index(wall)

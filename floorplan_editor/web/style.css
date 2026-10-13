@@ -1,0 +1,309 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font: 13px/1.35 "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: #1d2329;
+  background: #e9ecef;
+}
+body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+}
+button {
+  font: inherit;
+  padding: 4px 9px;
+  border: 1px solid #b8c0c8;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+button:hover {
+  background: #f1f4f7;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.primary {
+  background: #1565c0;
+  border-color: #1565c0;
+  color: #fff;
+}
+button.primary:hover {
+  background: #0f56a8;
+}
+button.active {
+  background: #dbe8f8;
+  border-color: #1565c0;
+}
+kbd {
+  font-size: 10px;
+  color: #6a737d;
+}
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 3px 5px;
+  border: 1px solid #b8c0c8;
+  border-radius: 3px;
+  min-width: 0;
+}
+h2 {
+  font-size: 13px;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4a545e;
+}
+.row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+}
+.row.wrap {
+  flex-wrap: wrap;
+}
+.row.right {
+  justify-content: flex-end;
+}
+.note {
+  color: #5c6670;
+  font-size: 12px;
+}
+.error {
+  color: #b00020;
+}
+
+#toolbar {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 6px 10px;
+  background: #fff;
+  border-bottom: 1px solid #ccd3da;
+  flex-wrap: wrap;
+}
+#toolbar .group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#toolbar .right {
+  margin-left: auto;
+}
+#tool-options label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+#tool-options input {
+  width: 64px;
+}
+
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  min-height: 0;
+  min-width: 0;
+}
+#stage {
+  position: relative;
+  overflow: hidden;
+  background: #cfd5db;
+}
+#svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+#paper {
+  fill: #fff;
+}
+#empty[hidden] {
+  display: none;
+}
+#empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+#side {
+  overflow-y: auto;
+  background: #fff;
+  border-left: 1px solid #ccd3da;
+}
+#side section {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e3e7eb;
+}
+#folder-input {
+  flex: 1;
+}
+#file-list {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+#file-list li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+#file-list li.current {
+  background: #e3eefb;
+  font-weight: 600;
+}
+#file-list a {
+  cursor: pointer;
+  flex: 1;
+}
+#file-list .links a {
+  flex: none;
+  font-size: 11px;
+  font-weight: normal;
+}
+#view-panel input[type="range"],
+#trace-panel input[type="range"] {
+  flex: 1;
+}
+#trace-panel output {
+  width: 28px;
+  text-align: right;
+}
+#props .field {
+  display: grid;
+  grid-template-columns: 82px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  margin: 3px 0;
+}
+#props .field .hint {
+  color: #6a737d;
+  font-size: 11px;
+  min-width: 52px;
+}
+#props textarea {
+  width: 100%;
+  min-height: 90px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+#props ul.errors {
+  margin: 4px 0;
+  padding-left: 18px;
+  color: #b00020;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+#status {
+  display: flex;
+  gap: 18px;
+  padding: 4px 10px;
+  background: #fff;
+  border-top: 1px solid #ccd3da;
+  font-size: 12px;
+  color: #4a545e;
+  white-space: nowrap;
+}
+#status-msg {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#status-msg.error {
+  color: #b00020;
+}
+
+dialog {
+  border: 1px solid #b8c0c8;
+  border-radius: 6px;
+  width: 420px;
+}
+dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 8px 0;
+}
+
+/* plan drawing */
+#plan-layer .obj.selected polygon,
+#plan-layer .obj.selected line,
+#plan-layer .obj.selected path {
+  stroke: #1565c0;
+}
+#plan-layer .obj.selected polygon.wall {
+  fill: rgba(21, 101, 192, 0.5);
+}
+#plan-layer .obj.selected text {
+  fill: #1565c0;
+}
+#plan-layer text {
+  font-family: Arial, sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+.erase-rect {
+  fill: rgba(0, 140, 255, 0.1);
+  stroke: #0a7bd6;
+  stroke-dasharray: 4 3;
+}
+.erase-rect.selected {
+  fill: rgba(21, 101, 192, 0.25);
+  stroke: #1565c0;
+  stroke-dasharray: none;
+}
+.trace-wall {
+  fill: rgba(0, 160, 60, 0.45);
+  stroke: #008a35;
+}
+.handle {
+  fill: #fff;
+  stroke: #1565c0;
+  cursor: grab;
+}
+.handle.mid {
+  fill: #dbe8f8;
+}
+.handle.rotate {
+  fill: #ffe9a8;
+}
+.ghost {
+  fill: rgba(21, 101, 192, 0.18);
+  stroke: #1565c0;
+  stroke-dasharray: 5 3;
+}
+.ghost-line {
+  stroke: rgba(21, 101, 192, 0.55);
+  fill: none;
+}
+.snap-mark {
+  fill: none;
+  stroke: #e65100;
+}
+.measure {
+  font-family: Arial, sans-serif;
+  fill: #0d47a1;
+  paint-order: stroke;
+  stroke: #fff;
+  pointer-events: none;
+}

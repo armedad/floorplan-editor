@@ -181,6 +181,13 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
     doc = Document(folder, sheet)
     app.state.doc = doc
 
+    @app.middleware("http")
+    async def no_cache_static(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.get("/")
     def index():
         return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-store"})

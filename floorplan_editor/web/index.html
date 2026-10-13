@@ -1,2 +1,125 @@
 <!doctype html>
-<title>floorplan editor</title>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>floorplan editor</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header id="toolbar">
+      <div class="group" id="tools">
+        <button data-tool="select" title="Select, move, drag handles (V)">Select <kbd>V</kbd></button>
+        <button data-tool="wall" title="Draw walls, click each corner; double-click or Esc ends (W)">Wall <kbd>W</kbd></button>
+        <button data-tool="door" title="Click a wall to add a door (D)">Door <kbd>D</kbd></button>
+        <button data-tool="window" title="Click a wall to add a window (N)">Window <kbd>N</kbd></button>
+        <button data-tool="counter" title="Drag a box counter (C)">Counter <kbd>C</kbd></button>
+        <button data-tool="polygon" title="Click the corners of a counter outline; double-click or Enter closes (P)">Outline <kbd>P</kbd></button>
+        <button data-tool="fixture" title="Place a fixture (X)">Fixture <kbd>X</kbd></button>
+        <button data-tool="label" title="Click to add a text label (T)">Label <kbd>T</kbd></button>
+        <button data-tool="erase" title="Drag a white-out region over printed ink on the sheet (E)">Erase <kbd>E</kbd></button>
+        <button data-tool="calibrate" title="Click two points a known distance apart, then type the length (K)">Scale <kbd>K</kbd></button>
+      </div>
+      <div class="group" id="tool-options"></div>
+      <div class="group right">
+        <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+        <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
+        <button id="save" title="Save over the open file (Ctrl+S)">Save</button>
+        <button id="save-step" class="primary" title="Save as the next plan-stepN.json">Save as new step</button>
+      </div>
+    </header>
+    <main>
+      <div id="stage">
+        <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+          <g id="world">
+            <rect id="paper" x="0" y="0" width="0" height="0" />
+            <image id="sheet" x="0" y="0" preserveAspectRatio="none" />
+            <g id="plan-layer"></g>
+            <g id="erase-layer"></g>
+            <g id="trace-layer"></g>
+            <g id="ui-layer"></g>
+          </g>
+        </svg>
+        <div id="empty" hidden>
+          <p>No plan in this folder yet.</p>
+          <button id="empty-new" class="primary">New plan from a sheet image…</button>
+        </div>
+      </div>
+      <aside id="side">
+        <section id="files-panel">
+          <h2>Folder and steps</h2>
+          <form id="folder-form" class="row">
+            <input id="folder-input" spellcheck="false" />
+            <button type="submit">Open</button>
+          </form>
+          <ul id="file-list"></ul>
+          <div class="row wrap">
+            <button id="merge">Merge checked</button>
+            <button id="save-as">Save as…</button>
+            <button id="revert">Revert</button>
+            <button id="view-overlay">View overlay</button>
+            <button id="new-plan">New plan…</button>
+          </div>
+          <div id="saved-files" class="note"></div>
+        </section>
+        <section id="view-panel">
+          <h2>View</h2>
+          <label class="row"><input type="checkbox" id="show-sheet" checked /> Sheet image</label>
+          <label class="row">Opacity <input type="range" id="sheet-opacity" min="0" max="1" step="0.05" value="0.55" /></label>
+          <label class="row"><input type="checkbox" id="show-erase" checked /> Erase regions</label>
+          <label class="row"><input type="checkbox" id="snap" checked /> Snap to corners and walls</label>
+          <label class="row"><input type="checkbox" id="grid" checked /> Snap to 1&Prime; grid</label>
+        </section>
+        <section id="props-panel">
+          <h2 id="props-title">Plan</h2>
+          <div id="props"></div>
+        </section>
+        <section id="trace-panel">
+          <h2>Auto-trace walls</h2>
+          <p class="note">Finds long dark bars on the sheet. Preview, adjust, then apply and clean up by hand.</p>
+          <label class="row">Ink darker than <input type="range" id="tr-dark" min="20" max="240" value="110" /><output for="tr-dark"></output></label>
+          <label class="row">Thinnest wall (px) <input type="range" id="tr-min" min="1" max="20" value="3" /><output for="tr-min"></output></label>
+          <label class="row">Thickest wall (px) <input type="range" id="tr-max" min="4" max="60" value="24" /><output for="tr-max"></output></label>
+          <label class="row">Shortest wall (px) <input type="range" id="tr-len" min="4" max="120" value="12" /><output for="tr-len"></output></label>
+          <div class="row wrap">
+            <button id="trace-preview">Preview</button>
+            <button id="trace-clear">Clear preview</button>
+            <label><input type="checkbox" id="trace-replace" /> Replace existing walls</label>
+            <button id="trace-apply" class="primary">Apply</button>
+          </div>
+          <div id="trace-note" class="note"></div>
+        </section>
+      </aside>
+    </main>
+    <footer id="status">
+      <span id="status-msg"></span>
+      <span id="status-cursor"></span>
+      <span id="status-snap"></span>
+      <span id="status-zoom"></span>
+      <span id="status-file"></span>
+    </footer>
+
+    <dialog id="new-dialog">
+      <form method="dialog" id="new-form">
+        <h2>New plan from a sheet image</h2>
+        <label>Sheet image (.png or .jpg)<input type="file" id="new-image" accept=".png,.jpg,.jpeg" /></label>
+        <p class="note" id="new-sheet-note"></p>
+        <label>Which way is up on the sheet?
+          <select id="new-up">
+            <option value="north">North</option>
+            <option value="east">East</option>
+            <option value="south">South</option>
+            <option value="west">West</option>
+          </select>
+        </label>
+        <label>Pixels per inch (set it later with the Scale tool if unsure)<input id="new-ppi" value="1" /></label>
+        <label>File name<input id="new-name" value="plan.json" /></label>
+        <div class="row right">
+          <button value="cancel">Cancel</button>
+          <button id="new-create" value="create" class="primary">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>
