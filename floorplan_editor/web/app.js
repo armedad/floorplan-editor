@@ -110,8 +110,8 @@ export async function call(path, body, extra = {}) {
   }
 }
 
-// Other clients (Cursor through the MCP server) change the same document. The server
-// streams its version and UI commands; catch up between our own requests and drags.
+// The document can change from outside this page. Replacing state mid-drag or mid-request
+// would drop that work, so calls and pointerup retry the sync once idle.
 async function syncFromServer() {
   if (app.drag || app.busy || app.syncing) return;
   if (app.state && app.state.version >= app.serverVersion) return drainUi();

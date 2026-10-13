@@ -1,4 +1,4 @@
-"""MCP server that lets an agent (Cursor) drive the floorplan editor.
+"""MCP server that lets an agent drive the floorplan editor.
 
 It talks to the editor's HTTP API, so every change lands in the same in-memory
 document the browser shows, and an open browser follows along live. If no editor is
@@ -276,7 +276,7 @@ def search(
 
 
 def _spawn_detached(cmd: list[str]) -> None:
-    """Start the editor so it outlives this MCP server (Cursor restarts MCP servers freely)."""
+    """Start the editor so it outlives this MCP server, which can be restarted at any time."""
     kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stderr": subprocess.STDOUT}
     with LOG.open("ab") as log:
         if os.name != "nt":
