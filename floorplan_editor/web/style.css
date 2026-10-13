@@ -503,6 +503,37 @@ dialog label {
   fill: #00897b;
 }
 
+/* the measurement under the pointer: its line, its label, its side-panel field, and the wall it measures to */
+.dim.hot-dim line,
+.dim.hot-dim line.ext {
+  stroke: #e65100;
+  stroke-dasharray: none;
+}
+.dim-label.hot-dim rect,
+.dim-label.gap.hot-dim rect {
+  fill: #e65100;
+  stroke: #e65100;
+}
+.dim-label.hot-dim text {
+  fill: #fff;
+}
+#side .field.hot-dim {
+  border-radius: 4px;
+  background: #fff1e6;
+  box-shadow: 0 0 0 2px #fff1e6;
+}
+#side .field.hot-dim label {
+  color: #bf360c;
+}
+#plan-layer .obj.dim-ref polygon,
+#plan-layer .obj.dim-ref line,
+#plan-layer .obj.dim-ref path {
+  stroke: #e65100;
+}
+#plan-layer .obj.dim-ref polygon.wall {
+  fill: rgba(230, 81, 0, 0.45);
+}
+
 /* object ids on the drawing */
 #id-layer {
   pointer-events: none;

@@ -125,14 +125,31 @@ function endNames(ux, uy) {
 
 const GAP_NAMES = { left: "to the wall on the left", right: "to the wall on the right", up: "to the wall above", down: "to the wall below" };
 const DIR_VEC = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
+const NOUNS = { walls: "wall", openings: "opening", counters: "counter", fixtures: "fixture", erase: "erase region" };
 
-function gapDims(plan, box) {
+function dirOf([x, y]) {
+  if (Math.abs(x) >= Math.abs(y)) return x >= 0 ? "right" : "left";
+  return y >= 0 ? "down" : "up";
+}
+
+function gapDims(plan, box, noun) {
   const [x0, y0, x1, y1] = box;
   return Object.values(clearances(plan, box)).map((c) => {
     const [vx, vy] = DIR_VEC[c.dir];
     const a = vx ? [vx > 0 ? x1 : x0, c.mid] : [c.mid, vy > 0 ? y1 : y0];
     const b = [a[0] + vx * c.gap, a[1] + vy * c.gap];
-    return { key: `gap-${c.dir}`, a, b, normal: [0, 0], value: c.gap, gap: true, title: `Clear distance ${GAP_NAMES[c.dir]} (${c.wall})` };
+    return {
+      key: `gap-${c.dir}`,
+      a,
+      b,
+      normal: [0, 0],
+      value: c.gap,
+      gap: true,
+      ref: `walls:${c.wall}`,
+      title: `Clear distance ${GAP_NAMES[c.dir]} (${c.wall})`,
+      what: `Open space from this ${noun}'s edge to wall ${c.wall}, along the dashed line.`,
+      effect: `Typing a value moves the ${noun}; ${c.wall} stays put.`,
+    };
   });
 }
 
@@ -153,6 +170,8 @@ export function dimsFor(plan, kind, id) {
       value: f.len,
       anchors: { start: `Keep the ${names.start} end`, center: "Keep the middle", end: `Keep the ${names.end} end` },
       title: "Wall length",
+      what: `Length of this wall, from its ${names.start} end to its ${names.end} end.`,
+      effect: "Typing a value stretches or shrinks it; you pick which end stays put.",
     });
     for (const g of parallelGaps(plan, obj)) {
       const px = obj.x1 + f.ux * g.mid;
@@ -167,7 +186,10 @@ export function dimsFor(plan, kind, id) {
         value: g.clear,
         gap: true,
         side: g.side,
-        title: `Clear distance to ${g.other.id}; typing a value moves this wall`,
+        ref: `walls:${g.other.id}`,
+        title: `Clear distance ${GAP_NAMES[dirOf(n)]} (${g.other.id})`,
+        what: `Open space between this wall's face and the face of wall ${g.other.id}, along the dashed line.`,
+        effect: `Typing a value moves this wall sideways; ${g.other.id} stays put.`,
       });
     }
   } else if (kind === "openings") {
@@ -178,7 +200,20 @@ export function dimsFor(plan, kind, id) {
     const at = (t) => [g.wall.x1 + f.ux * t, g.wall.y1 + f.uy * t];
     const normal = [f.nx, f.ny];
     const pad = g.wall.thickness / 2;
-    dims.push({ key: "gap-start", a: at(g.faceBefore), b: at(obj.offset), normal, pad, value: g.gapStart, gap: true, title: `Distance from the ${names.start} corner` });
+    const noun = obj.type === "door" ? "door" : "window";
+    const slide = `Typing a value slides the ${noun} along wall ${g.wall.id}; its width stays the same.`;
+    dims.push({
+      key: "gap-start",
+      a: at(g.faceBefore),
+      b: at(obj.offset),
+      normal,
+      pad,
+      value: g.gapStart,
+      gap: true,
+      title: `Distance from the ${names.start} corner`,
+      what: `Solid wall between the ${names.start} corner and the ${noun}'s ${names.start} edge.`,
+      effect: slide,
+    });
     dims.push({
       key: "width",
       a: at(obj.offset),
@@ -187,9 +222,22 @@ export function dimsFor(plan, kind, id) {
       pad,
       value: obj.width,
       anchors: { start: `Keep the ${names.start} edge`, center: "Keep the middle", end: `Keep the ${names.end} edge` },
-      title: `${obj.type === "door" ? "Door" : "Window"} width`,
+      title: `${noun === "door" ? "Door" : "Window"} width`,
+      what: `Width of the ${noun} opening, edge to edge.`,
+      effect: "Typing a value resizes it; you pick which edge stays put.",
     });
-    dims.push({ key: "gap-end", a: at(obj.offset + obj.width), b: at(g.faceAfter), normal, pad, value: g.gapEnd, gap: true, title: `Distance from the ${names.end} corner` });
+    dims.push({
+      key: "gap-end",
+      a: at(obj.offset + obj.width),
+      b: at(g.faceAfter),
+      normal,
+      pad,
+      value: g.gapEnd,
+      gap: true,
+      title: `Distance from the ${names.end} corner`,
+      what: `Solid wall between the ${noun}'s ${names.end} edge and the ${names.end} corner.`,
+      effect: slide,
+    });
   } else if (kind === "counters" && obj.points) {
     const pts = obj.points;
     let area = 0;
@@ -203,9 +251,19 @@ export function dimsFor(plan, kind, id) {
       const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
       if (len < 0.5) return;
       const n = [(-(q[1] - p[1]) / len) * outward, ((q[0] - p[0]) / len) * outward];
-      dims.push({ key: `edge-${i}`, a: p, b: q, normal: n, value: len, title: `Edge ${i + 1}; typing a value moves corner ${((i + 1) % pts.length) + 1}` });
+      const next = ((i + 1) % pts.length) + 1;
+      dims.push({
+        key: `edge-${i}`,
+        a: p,
+        b: q,
+        normal: n,
+        value: len,
+        title: `Edge ${i + 1}`,
+        what: `Length of the counter's edge from corner ${i + 1} to corner ${next}.`,
+        effect: `Typing a value moves corner ${next} along that edge; the other corners stay put.`,
+      });
     });
-    dims.push(...gapDims(plan, boxOf(kind, obj)));
+    dims.push(...gapDims(plan, boxOf(kind, obj), NOUNS[kind]));
   } else if (kind === "counters" || kind === "erase" || kind === "fixtures") {
     let tl;
     let tr;
@@ -229,9 +287,31 @@ export function dimsFor(plan, kind, id) {
     }
     const across = endNames(right[0], right[1]);
     const down = endNames(-up[0], -up[1]);
-    dims.push({ key: "w", a: tl, b: tr, normal: up, value: obj.w, anchors: { start: `Keep the ${across.start} side`, center: "Keep the middle", end: `Keep the ${across.end} side` }, title: "Width" });
-    dims.push({ key: "h", a: tr, b: br, normal: right, value: obj.h, anchors: { start: `Keep the ${down.start} side`, center: "Keep the middle", end: `Keep the ${down.end} side` }, title: "Depth" });
-    dims.push(...gapDims(plan, boxOf(kind, obj)));
+    const noun = NOUNS[kind];
+    const effect = "Typing a value resizes it; you pick which side stays put.";
+    dims.push({
+      key: "w",
+      a: tl,
+      b: tr,
+      normal: up,
+      value: obj.w,
+      anchors: { start: `Keep the ${across.start} side`, center: "Keep the middle", end: `Keep the ${across.end} side` },
+      title: "Width",
+      what: `Width of the ${noun}, from its ${across.start} side to its ${across.end} side.`,
+      effect,
+    });
+    dims.push({
+      key: "h",
+      a: tr,
+      b: br,
+      normal: right,
+      value: obj.h,
+      anchors: { start: `Keep the ${down.start} side`, center: "Keep the middle", end: `Keep the ${down.end} side` },
+      title: "Depth",
+      what: `Depth of the ${noun}, from its ${down.start} side to its ${down.end} side.`,
+      effect,
+    });
+    dims.push(...gapDims(plan, boxOf(kind, obj), noun));
   }
   for (const d of dims) d.label = formatLength(d.value);
   return dims;

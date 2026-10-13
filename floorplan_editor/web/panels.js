@@ -184,14 +184,15 @@ function dimFields(kind, id, dims, keys) {
   for (const d of dims.filter((x) => keys.includes(x.key) || (keys.includes("gaps") && x.gap && !x.key.startsWith("gap-start") && !x.key.startsWith("gap-end")))) {
     const label = d.gap ? gapLabel(d) : { length: "length", width: "width", w: "width", h: "depth" }[d.key] || d.key;
     const anchorKey = `${kind}:${d.key}`;
-    out.push(
-      lengthField(label, d.value, (v) => {
-        const anchor = app.opts.anchor[anchorKey] || (kind === "fixtures" ? "center" : "start");
-        const op = opForDim(app.plan, kind, id, d, v, anchor);
-        if (op) E.send(op);
-        else E.message(`${label} can't be ${formatLength(v)}.`, true);
-      }, { min: d.gap ? 0 : 0.5 }),
-    );
+    const field = lengthField(label, d.value, (v) => {
+      const anchor = app.opts.anchor[anchorKey] || (kind === "fixtures" ? "center" : "start");
+      const op = opForDim(app.plan, kind, id, d, v, anchor);
+      if (op) E.send(op);
+      else E.message(`${label} can't be ${formatLength(v)}.`, true);
+    }, { min: d.gap ? 0 : 0.5 });
+    field.dataset.dimKey = d.key;
+    field.querySelector("label").title = `${d.what} ${d.effect} Drag sideways to adjust.`;
+    out.push(field);
     if (d.anchors) out.push(anchorRow(anchorKey, d.anchors));
   }
   return out;
@@ -201,8 +202,7 @@ function gapLabel(d) {
   if (d.key === "gap-start" || d.key === "gap-end") return d.title.replace("Distance from the ", "from ");
   const dir = d.key.slice(4);
   if (["left", "right", "up", "down"].includes(dir)) return `clear ${dir}`;
-  const m = d.title.match(/to ([^;]+);/);
-  return m ? `clear to ${m[1]}` : "clear";
+  return d.ref ? `clear to ${d.ref.split(":")[1]}` : "clear";
 }
 
 function update(kind, id, fields) {

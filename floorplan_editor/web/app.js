@@ -444,7 +444,7 @@ function unionBox(keys) {
 
 // ---------------------------------------------------------------- drawing
 
-const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const f2 = (v) => v.toFixed(2);
 
 function sheetOn() {
@@ -711,8 +711,33 @@ function handlesFor(key) {
   return hs;
 }
 
+/** Highlight measurement `i`: its line, its label, and the wall it measures to. */
+function setHotDim(i) {
+  if (app.hotDim === i) return;
+  app.hotDim = i;
+  for (const n of document.querySelectorAll(".hot-dim, .dim-ref")) n.classList.remove("hot-dim", "dim-ref");
+  const d = i == null ? null : app.dims[i];
+  if (!d) return;
+  for (const n of uiLayer.querySelectorAll(`[data-dim="${i}"], [data-dim-line="${i}"]`)) n.classList.add("hot-dim");
+  for (const n of document.querySelectorAll(`#side [data-dim-key="${d.key}"]`)) n.classList.add("hot-dim");
+  if (d.ref) document.querySelector(`#plan-layer [data-key="${CSS.escape(d.ref)}"]`)?.classList.add("dim-ref");
+}
+
+function hotDimAt(target) {
+  const label = target.closest && target.closest("[data-dim]");
+  if (label) return Number(label.dataset.dim);
+  const field = target.closest && target.closest("#side [data-dim-key]");
+  if (!field) return null;
+  const i = app.dims.findIndex((d) => d.key === field.dataset.dimKey);
+  return i < 0 ? null : i;
+}
+
+document.addEventListener("pointerover", (e) => setHotDim(hotDimAt(e.target)));
+document.addEventListener("focusin", (e) => setHotDim(hotDimAt(e.target)));
+
 /** Dimension lines on the selected object. Each label is a button that opens a box to type the value. */
 function dimsMarkup() {
+  setHotDim(null);
   app.dims = [];
   const info = selectionInfo();
   const busy = app.drag && app.drag.type !== "pan";
@@ -735,7 +760,7 @@ function dimsMarkup() {
         const [tx, ty] = [(ux - uy) * t, (uy + ux) * t];
         return `<line x1="${f2(x - tx)}" y1="${f2(y - ty)}" x2="${f2(x + tx)}" y2="${f2(y + ty)}"/>`;
       };
-      let s = `<g class="dim${d.gap ? " gap" : ""}" stroke-width="${sw}">`;
+      let s = `<g class="dim${d.gap ? " gap" : ""}" data-dim-line="${i}" stroke-width="${sw}">`;
       if (off) {
         for (const [p, q] of [
           [[ax, ay], A],
@@ -756,8 +781,7 @@ function dimsMarkup() {
         [mx, my] = [ex + ux * k, ey + uy * k];
       }
       s +=
-        `<g class="dim-label${d.gap ? " gap" : ""}" data-dim="${i}" role="button" aria-label="${esc(d.title)}: ${esc(d.label)}" transform="translate(${f2(mx)} ${f2(my)}) scale(${px(1)})">` +
-        `<title>${esc(d.title)}: click to type a value</title>` +
+        `<g class="dim-label${d.gap ? " gap" : ""}" data-dim="${i}" role="button" aria-label="${esc(d.title)}: ${esc(d.label)}" data-tip="${esc(`${d.title}: ${d.what} ${d.effect} Click to type a value.`)}" transform="translate(${f2(mx)} ${f2(my)}) scale(${px(1)})">` +
         `<rect x="${-w / 2}" y="-9" width="${w}" height="18" rx="9"/><text y="4" text-anchor="middle">${esc(d.label)}</text></g>`;
       return s;
     })
@@ -1307,7 +1331,7 @@ function openDimInput(kind, id, d) {
     y: sy + 18,
     label: d.title,
     value: formatLength(d.value),
-    hint: `Type 10'6", 126, or math like 10' - 4.5.${d.anchors ? " The highlighted side stays put." : ""} Enter saves; Esc cancels.`,
+    hint: `${d.anchors ? "" : `${d.effect} `}Type 10'6", 126, or math like 10' - 4.5.${d.anchors ? " The highlighted side stays put." : ""} Enter saves; Esc cancels.`,
     choices: d.anchors ? ["start", "center", "end"].map((a) => [a, d.anchors[a].replace(/^Keep (the )?/, "")]) : null,
     choice,
     onCommit: (text, anchor) => {

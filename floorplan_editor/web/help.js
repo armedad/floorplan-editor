@@ -307,7 +307,7 @@ function show(anchor) {
         "Learn more",
       )
     : null;
-  tip.replaceChildren(el("div", { class: "tip-main" }, el("span", {}, help.tip), help.keys ? el("kbd", {}, help.keys) : null), learn, body);
+  tip.replaceChildren(...[el("div", { class: "tip-main" }, el("span", {}, help.tip), help.keys ? el("kbd", {}, help.keys) : null), learn, body].filter(Boolean));
   tip.classList.remove("expanded");
   tip.hidden = false;
   anchor.setAttribute("aria-describedby", "tip");
