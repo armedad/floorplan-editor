@@ -799,7 +799,7 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
     return app
 
 
-def serve(folder: Path, *, sheet: Path | None = None, port: int = 8765, open_browser: bool = True) -> None:
+def serve(folder: Path, *, sheet: Path | None = None, port: int = 35667, open_browser: bool = True) -> None:
     import uvicorn
 
     app = create_app(Path(folder), sheet)

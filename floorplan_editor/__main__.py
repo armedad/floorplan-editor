@@ -107,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     serve_cmd = sub.add_parser("serve", help="open the browser editor on a plan folder")
     serve_cmd.add_argument("folder", type=Path, nargs="?", default=Path.cwd())
     serve_cmd.add_argument("--sheet", type=Path, help="source sheet image (default: the image in the folder)")
-    serve_cmd.add_argument("--port", type=int, default=8765)
+    serve_cmd.add_argument("--port", type=int, default=35667)
     serve_cmd.add_argument("--no-browser", action="store_true")
 
     sub.add_parser("mcp", help="run the MCP server (stdio) that lets Cursor drive the editor")

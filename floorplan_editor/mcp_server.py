@@ -4,7 +4,7 @@ It talks to the editor's HTTP API, so every change lands in the same in-memory
 document the browser shows, and an open browser follows along live. If no editor is
 running, `start_editor` launches `floorplan serve` in the background.
 
-Run it with `floorplan mcp` (stdio). Set FLOORPLAN_URL to use a port other than 8765.
+Run it with `floorplan mcp` (stdio). Set FLOORPLAN_URL to use a port other than 35667.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from .engine.analyze import object_box, union_box
 from .engine.geometry import along, distance_to_wall, format_length, project, wall_length
 from .engine.model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS, comments_of
 
-URL = os.environ.get("FLOORPLAN_URL", "http://127.0.0.1:8765").rstrip("/")
+URL = os.environ.get("FLOORPLAN_URL", "http://127.0.0.1:35667").rstrip("/")
 LOG = Path(tempfile.gettempdir()) / "floorplan-editor.log"
 BASE = "plan.json"
 
@@ -363,7 +363,7 @@ def start_editor(
         path = Path(folder).expanduser().resolve()
         if not path.is_dir():
             raise ToolError(f"{path} is not a folder")
-        port = httpx.URL(URL).port or 8765
+        port = httpx.URL(URL).port or 35667
         cmd = [sys.executable, "-m", "floorplan_editor", "serve", str(path), "--port", str(port), "--no-browser"]
         if sheet:
             cmd += ["--sheet", str(Path(sheet).expanduser().resolve())]

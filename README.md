@@ -62,7 +62,7 @@ only create the venv once; after that, the last line is all you need to start th
 floorplan serve
 ```
 
-It starts a server on http://127.0.0.1:8765 and opens your browser. You can also give it a
+It starts a server on http://127.0.0.1:35667 and opens your browser. You can also give it a
 folder to start in (`floorplan serve C:\Users\CheeC\code\riverside-39c`). Options:
 
 - `--sheet PATH` picks the source image when the folder has more than one.
@@ -450,7 +450,7 @@ Add it to `~/.cursor/mcp.json` (on Chee's machine it's already there):
 ```
 
 With your own venv, point `command` at that venv's Python. To use a port other than
-8765, add `"env": { "FLOORPLAN_URL": "http://127.0.0.1:9000" }`.
+35667, add `"env": { "FLOORPLAN_URL": "http://127.0.0.1:9000" }`.
 
 Then ask Cursor things like "open the editor on C:\plans\39C, delete the tub's front
 wall, put a toilet there facing east, and save it as a step," or drop flags in the
@@ -493,7 +493,7 @@ floorplan render plan.json [--out-dir DIR]
 floorplan overlay plan.json sheet.jpg [--out FILE] [--erase-from plan.json]
 floorplan merge plan.json plan-step1.json plan-step2.json --out plan-merged.json
 floorplan trace sheet.jpg --out plan.json --px-per-inch 1.03 --up south
-floorplan serve [FOLDER] [--sheet IMAGE] [--port 8765] [--no-browser]
+floorplan serve [FOLDER] [--sheet IMAGE] [--port 35667] [--no-browser]
 floorplan mcp
 ```
 
