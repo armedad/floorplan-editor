@@ -64,9 +64,11 @@ def test_search_near_and_by_type(sample):
     assert m.search(sample, text="kitchen")[0]["id"] in {"kitchen-window", "kitchen-l", "kitchen-sink", 0}
 
 
-def test_rotated_fixture_box(sample):
-    toilet = {"id": "t", "type": "toilet", "x": 100, "y": 100, "w": 20, "h": 28, "rot": 90}
-    assert m.object_box(sample, "fixtures", toilet) == pytest.approx((72, 100, 100, 120))
+def test_fixture_box_is_centered_and_rotates(sample):
+    toilet = {"id": "t", "type": "toilet", "x": 100, "y": 100, "w": 20, "h": 28}
+    assert m.object_box(sample, "fixtures", toilet) == pytest.approx((90, 86, 110, 114))
+    toilet["rot"] = 90
+    assert m.object_box(sample, "fixtures", toilet) == pytest.approx((86, 90, 114, 110))
 
 
 # ---------------------------------------------------------------- tools against a live editor
@@ -181,3 +183,34 @@ def test_browser_events_stream(live):
         assert {"action": "message", "text": "Cursor: deleted column"} in events
         sent = m.control_browser("zoom", region=[0, 0, 100, 100])
         assert sent["browsers_connected"] == 1
+
+
+def test_flags_round_trip(live, sample_folder):
+    with httpx.Client(base_url=live) as client:
+        client.post("/api/flags", json={"action": "add", "x": 320, "y": 22, "note": "swap for a smaller toilet", "target": ["fixtures", "toilet"]})
+        client.post("/api/flags", json={"action": "add", "x": 300, "y": 0, "w": 100, "h": 110, "note": "the whole bath"})
+    listed = m.list_flags()
+    assert listed["count"] == 2
+    first, region = listed["flags"]
+    assert first["placed_on"]["id"] == "toilet" and first["near"][0]["id"] == "toilet"
+    assert {"toilet", "tub", "bath-sink"} <= {hit["id"] for hit in region["inside"]}
+    assert m.editor_status()["open_flags"] == ["F1", "F2"]
+
+    image, caption = m.view_image("overlay", flag="F1", max_px=600)
+    assert "around F1" in caption and Image.open(BytesIO(image.data)).size == (576, 576)
+
+    mine = m.add_flag(150, 130, note="column here?")
+    assert mine["id"] == "F3" and mine["by"] == "cursor" and mine["near"][0]["id"] == "column"
+    assert m.update_flag("f1", done=True)["done"] is True
+    assert m.list_flags()["count"] == 2 and m.list_flags(include_done=True)["count"] == 3
+    assert m.delete_flags(all_done=True)["remaining"] == ["F2", "F3"]
+    assert json.loads((sample_folder / "flags.json").read_text())["next"] == 4
+
+
+def test_open_anything_turns_an_image_into_a_project(live, sample_folder, tmp_path):
+    scan = tmp_path / "scan.png"
+    scan.write_bytes((sample_folder / "sheet.png").read_bytes())
+    out = m.open_anything(str(scan), open_browser=False)
+    assert out["opened"]["how"] == "new_from_image" and out["file"] == "plan.json"
+    assert out["folder"] == str(tmp_path / "workspace" / "scan")
+    assert m.open_anything(str(sample_folder / "plan.json"), open_browser=False)["folder"] == str(sample_folder)

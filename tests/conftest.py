@@ -8,6 +8,13 @@ ROOT = Path(__file__).resolve().parent.parent
 SAMPLE = ROOT / "examples" / "sample" / "plan.json"
 
 
+@pytest.fixture(autouse=True)
+def private_home(tmp_path, monkeypatch):
+    """Keep recent folders and new projects out of the real home folder."""
+    monkeypatch.setenv("FLOORPLAN_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("FLOORPLAN_WORKSPACE", str(tmp_path / "workspace"))
+
+
 @pytest.fixture
 def sample() -> dict:
     return json.loads(SAMPLE.read_text(encoding="utf-8"))

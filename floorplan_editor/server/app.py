@@ -6,6 +6,10 @@ the engine applies them and the server answers with the new plan and its scene.
 
 Other clients (the MCP server) use the same API. Every change bumps `version`, and
 `/api/events` streams version bumps and UI commands so an open browser follows along.
+
+Opening is one step for any file: a folder, a plan JSON, or a floor plan image, picked
+on disk or dropped in the browser. An image nobody has planned yet becomes a new
+project in the workspace, traced and scaled automatically.
 """
 
 from __future__ import annotations
@@ -43,7 +47,20 @@ from ..engine.steps import (
     next_step_name,
     write_outputs,
 )
-from ..engine.trace import TraceSettings, trace_walls
+from ..engine.trace import TraceSettings, estimate_px_per_inch, trace_walls
+from .flags import FlagError, FlagStore
+from .projects import (
+    PickerUnavailable,
+    is_image,
+    native_pick,
+    plans_matching,
+    project_with_sheet,
+    recent_folders,
+    remember,
+    slug,
+    unique_folder,
+    workspace,
+)
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 UNDO_LIMIT = 200
@@ -83,7 +100,9 @@ class Document:
         self.saved: dict | None = None
         self.undo: list[dict] = []
         self.redo: list[dict] = []
+        self.flags = FlagStore(folder)
         self.bump()
+        remember(folder)
         plans = list_plans(folder)
         steps = [name for name in plans if STEP_RE.match(name)]
         start = steps[-1] if steps else (BASE_NAME if BASE_NAME in plans else (plans[-1] if plans else None))
@@ -129,6 +148,193 @@ class Document:
             "matches": matches,
             "mtime": sheet.stat().st_mtime_ns,
         }
+
+    # ------------------------------------------------------------ new plans and opening anything
+
+    def start_plan(self, name: str = BASE_NAME, *, up: str = "north", px_per_inch=None, title=None, auto=False) -> dict:
+        """A plan sized to the sheet. `auto` traces the walls and guesses the scale from their thickness."""
+        sheet = self.sheet
+        if not sheet or not sheet.exists():
+            raise HTTPException(400, "choose a sheet image first")
+        with Image.open(sheet) as image:
+            width, height = image.size
+        scale = float(px_per_inch or 1.0)
+        self.file, self.saved = name, None
+        self.plan = {
+            "name": title or self.folder.name,
+            "units": "inches",
+            "compass": compass_from_up(up),
+            "canvas": {"width_px": width, "height_px": height, "px_per_inch": scale, "origin_px": [0, 0]},
+        }
+        self.undo, self.redo = [], []
+        self.bump()
+        if not auto:
+            return {}
+        walls = trace_walls(sheet, TraceSettings(), px_per_inch=scale, origin=(0, 0))
+        info: dict = {"traced": len(walls)}
+        ops: list[dict] = [{"op": "add_walls", "walls": walls}] if walls else []
+        guess = None if px_per_inch else estimate_px_per_inch(walls, scale)
+        if guess:
+            ops.append({"op": "calibrate", "p1": [0, 0], "p2": [guess, 0], "length": 1})
+            info["estimated_px_per_inch"] = guess
+        if ops:
+            self.apply_op({"op": "batch", "ops": ops})
+            self.undo = []
+        return info
+
+    def save_plan(self, mode: str = "overwrite", name: str | None = None) -> dict:
+        plan = self.require_plan()
+        if mode == "step":
+            name = next_step_name(self.folder)
+        elif mode == "as":
+            name = str(name or "").strip()
+            if not name.endswith(".json"):
+                name += ".json"
+            if not PLAN_RE.match(name):
+                raise HTTPException(400, "plan files are named plan.json or plan-<something>.json")
+        else:
+            name = self.file or BASE_NAME
+        errors = validate_plan(plan)
+        if errors:
+            raise HTTPException(400, {"errors": errors})
+        result = write_outputs(plan, self._path(name), self.sheet, load_base(self.folder))
+        self.file, self.saved = name, copy.deepcopy(plan)
+        self.bump()
+        return {"files": result.files, "warnings": result.warnings}
+
+    def _new_project_from_image(self, folder: Path, image_name: str, data: bytes | None = None, source: Path | None = None) -> dict:
+        folder.mkdir(parents=True, exist_ok=True)
+        suffix = Path(image_name).suffix.lower()
+        target = folder / f"sheet{suffix}"
+        n = 2
+        while target.exists():
+            target = folder / f"sheet-{n}{suffix}"
+            n += 1
+        if data is not None:
+            target.write_bytes(data)
+        else:
+            shutil.copyfile(source, target)
+        self.open_folder(folder, target)
+        info = self.start_plan(BASE_NAME, title=Path(image_name).stem, auto=True)
+        saved = self.save_plan("overwrite")
+        traced = info.get("traced", 0)
+        message = f"New plan for {image_name} in {folder}: traced {traced} walls"
+        if info.get("estimated_px_per_inch"):
+            message += ", scale guessed from wall thickness. Check it with Scale (K) on a dimension you know."
+        else:
+            message += ". Set the scale with Scale (K) on a dimension you know."
+        return {"how": "new_from_image", "folder": str(folder), "message": message, "saved": saved, **info}
+
+    def _plan_name_for(self, filename: str) -> str:
+        if not (self.folder / BASE_NAME).exists():
+            return BASE_NAME
+        if PLAN_RE.match(filename) and not (self.folder / filename).exists():
+            return filename
+        stem = slug(Path(filename).stem)
+        stem = stem[5:] if stem.startswith("plan-") else stem
+        name, n = f"plan-{stem}.json", 2
+        while (self.folder / name).exists():
+            name = f"plan-{stem}-{n}.json"
+            n += 1
+        return name
+
+    def open_path(self, raw: str) -> dict:
+        """Open whatever is at a path on disk: a plan folder, a plan JSON, or a floor plan image."""
+        path = Path(raw).expanduser().resolve()
+        if path.is_dir():
+            self.open_folder(path)
+            return {"how": "folder", "message": f"Opened folder {path}"}
+        if not path.is_file():
+            raise HTTPException(404, f"{path} not found")
+        if path.suffix.lower() == ".json":
+            try:
+                load_plan(path)
+            except PlanError as exc:
+                raise HTTPException(400, {"errors": exc.errors}) from exc
+            self.open_folder(path.parent)
+            self.open_file(path.name)
+            return {"how": "plan", "message": f"Opened {path.name} in {path.parent}"}
+        if not is_image(path.name):
+            raise HTTPException(400, "open a plan folder, a plan .json, or a .png/.jpg floor plan image")
+        with Image.open(path) as image:
+            size = image.size
+        matching = plans_matching(path.parent, size)
+        if matching:
+            self.open_folder(path.parent, path)
+            return {"how": "folder", "message": f"Opened the plans for {path.name} in {path.parent}"}
+        data = path.read_bytes()
+        existing = project_with_sheet(data)
+        if existing:
+            self.open_folder(existing)
+            return {"how": "reopened", "folder": str(existing), "message": f"Opened {existing}, the project already made from {path.name}"}
+        return self._new_project_from_image(unique_folder(workspace(), path.stem), path.name, source=path)
+
+    def open_uploads(self, files: list[dict]) -> dict:
+        """Open files dropped or picked in the browser, which arrive without a path."""
+        images = [f for f in files if is_image(str(f.get("filename", "")))]
+        plans = [f for f in files if str(f.get("filename", "")).lower().endswith(".json")]
+        if not images and not plans:
+            raise HTTPException(400, "drop a plan .json or a .png/.jpg floor plan image")
+        plan = data = None
+        if plans:
+            try:
+                plan = json.loads(base64.b64decode(plans[0]["data"]).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError) as exc:
+                raise HTTPException(400, f"{plans[0]['filename']} is not JSON: {exc}") from exc
+            if not isinstance(plan, dict) or "canvas" not in plan:
+                raise HTTPException(400, f"{plans[0]['filename']} is not a floor plan (it has no canvas)")
+        if images:
+            image = images[0]
+            data = base64.b64decode(image["data"])
+            if plan is None:
+                current = self.sheet
+                if current and current.exists() and self.plan is not None and current.read_bytes() == data:
+                    return {"how": "same", "message": f"{image['filename']} is the sheet already open here"}
+                existing = project_with_sheet(data)
+                if existing:
+                    self.open_folder(existing)
+                    return {"how": "reopened", "folder": str(existing), "message": f"Opened {existing}, the project already made from {image['filename']}"}
+                empty = not list_plans(self.folder) and self.plan is None
+                folder = self.folder if empty else unique_folder(workspace(), Path(image["filename"]).stem)
+                return self._new_project_from_image(folder, image["filename"], data=data)
+            folder = unique_folder(workspace(), Path(plans[0]["filename"]).stem)
+            folder.mkdir(parents=True, exist_ok=True)
+            sheet = folder / f"sheet{Path(image['filename']).suffix.lower()}"
+            sheet.write_bytes(data)
+            (folder / BASE_NAME).write_text(json.dumps(plan, indent=2), encoding="utf-8")
+            self.open_folder(folder, sheet)
+            return {"how": "plan_and_image", "folder": str(folder), "message": f"Opened {plans[0]['filename']} over {image['filename']} in {folder}"}
+        filename = plans[0]["filename"]
+        canvas = plan["canvas"]
+        size = (int(round(canvas.get("width_px", 0))), int(round(canvas.get("height_px", 0))))
+        for name in list_plans(self.folder):
+            if load_plan(self.folder / name) == plan:
+                self.open_file(name)
+                return {"how": "plan", "message": f"{filename} is the same as {name}; opened it"}
+        sheet = self.sheet_info()
+        fits = (sheet and (sheet["width"], sheet["height"]) == size) or (not sheet and not list_plans(self.folder))
+        if fits:
+            name = self._plan_name_for(filename)
+            (self.folder / name).write_text(json.dumps(plan, indent=2), encoding="utf-8")
+            self.open_file(name)
+            return {"how": "plan", "message": f"Added {filename} to this folder as {name}"}
+        folder = unique_folder(workspace(), Path(filename).stem)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / BASE_NAME).write_text(json.dumps(plan, indent=2), encoding="utf-8")
+        self.open_folder(folder)
+        return {
+            "how": "plan",
+            "folder": str(folder),
+            "message": f"{filename} doesn't fit this folder's sheet, so it opened in {folder}. Drop its sheet image to see it underneath.",
+        }
+
+    # ------------------------------------------------------------ flags
+
+    def flag_px(self, x: float, y: float) -> list[float]:
+        canvas = self.require_plan()["canvas"]
+        scale = float(canvas["px_per_inch"])
+        ox, oy = canvas["origin_px"]
+        return [ox + float(x) * scale, oy + float(y) * scale]
 
     # ------------------------------------------------------------ editing
 
@@ -190,6 +396,9 @@ class Document:
             "has_base": (self.folder / BASE_NAME).exists(),
             "fixture_types": list(FIXTURE_TYPES),
             "browsers": self.browsers,
+            "flags": self.flags.listing(plan["canvas"] if plan else None),
+            "workspace": str(workspace()),
+            "recent": recent_folders(),
             **extra,
         }
 
@@ -255,7 +464,71 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
     def edit(body: dict = Body(...)):
         with doc.lock:
             ref = doc.apply_op(body["op"])
-            return doc.state(ref=ref)
+            if ref and isinstance(ref[0], list):
+                return doc.state(ref=ref[0], refs=ref)
+            return doc.state(ref=ref or None)
+
+    @app.post("/api/open-any")
+    def open_any(body: dict = Body(...)):
+        """Open a path on disk, or files uploaded from the browser, whatever they are."""
+        with doc.lock:
+            if body.get("path"):
+                info = doc.open_path(str(body["path"]))
+            elif body.get("files"):
+                info = doc.open_uploads(list(body["files"]))
+            else:
+                raise HTTPException(400, "give a path or files")
+            return doc.state(opened=info)
+
+    @app.post("/api/pick")
+    def pick(body: dict = Body(default={})):
+        """Show the system's open dialog, then open what was picked."""
+        kind = "folder" if body.get("kind") == "folder" else "file"
+        try:
+            path = native_pick(kind, str(doc.folder))
+        except PickerUnavailable as exc:
+            raise HTTPException(501, f"no file dialog here ({exc}); drop the file on the page instead") from exc
+        if not path:
+            return {"cancelled": True}
+        with doc.lock:
+            info = doc.open_path(path)
+            return doc.state(opened=info)
+
+    @app.post("/api/flags")
+    def flags(body: dict = Body(...)):
+        """Add, change, or remove flags: {action: add|update|delete|clear_done, ...} in plan inches."""
+        action = body.get("action")
+        with doc.lock:
+            try:
+                flag_id = None
+                if action == "add":
+                    px = body.get("px") or doc.flag_px(body["x"], body["y"])
+                    size = None
+                    if body.get("w") and body.get("h"):
+                        scale = float(doc.require_plan()["canvas"]["px_per_inch"])
+                        size = [float(body["w"]) * scale, float(body["h"]) * scale]
+                    flag = doc.flags.add(px, size=size, note=str(body.get("note") or ""), target=body.get("target"), by=str(body.get("by") or "user"))
+                    flag_id = flag["id"]
+                elif action == "update":
+                    fields = {k: body.get(k) for k in ("note", "done")}
+                    if body.get("x") is not None and body.get("y") is not None:
+                        fields["px"] = doc.flag_px(body["x"], body["y"])
+                    if "target" in body:
+                        fields["target"] = body["target"]
+                    flag_id = doc.flags.update(str(body["id"]), **fields)["id"]
+                elif action == "delete":
+                    ids = body.get("ids") or ([body["id"]] if body.get("id") else [])
+                    doc.flags.delete([str(i) for i in ids])
+                elif action == "clear_done":
+                    doc.flags.clear_done()
+                else:
+                    raise HTTPException(400, "action must be add, update, delete, or clear_done")
+            except FlagError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except KeyError as exc:
+                raise HTTPException(400, f"flags {action}: missing {exc}") from exc
+            doc.bump()
+            return doc.state(flag=flag_id)
 
     @app.post("/api/undo")
     def undo():
@@ -272,26 +545,8 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
     @app.post("/api/save")
     def save(body: dict = Body(default={})):
         with doc.lock:
-            plan = doc.require_plan()
-            mode = body.get("mode", "overwrite")
-            if mode == "step":
-                name = next_step_name(doc.folder)
-            elif mode == "as":
-                name = str(body.get("name", "")).strip()
-                if not name.endswith(".json"):
-                    name += ".json"
-                if not PLAN_RE.match(name):
-                    raise HTTPException(400, "plan files are named plan.json or plan-<something>.json")
-            else:
-                name = doc.file or BASE_NAME
-            errors = validate_plan(plan)
-            if errors:
-                raise HTTPException(400, {"errors": errors})
-            base = load_base(doc.folder)
-            result = write_outputs(plan, doc._path(name), doc.sheet, base)
-            doc.file, doc.saved = name, copy.deepcopy(plan)
-            doc.bump()
-            return doc.state(saved={"files": result.files, "warnings": result.warnings})
+            saved = doc.save_plan(body.get("mode", "overwrite"), body.get("name"))
+            return doc.state(saved=saved)
 
     @app.post("/api/merge")
     def merge(body: dict = Body(...)):
@@ -369,26 +624,14 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
                 doc.sheet_override = target
             elif body.get("image_path"):
                 doc.sheet_override = Path(body["image_path"]).expanduser().resolve()
-            sheet = doc.sheet
-            if not sheet or not sheet.exists():
-                raise HTTPException(400, "choose a sheet image first")
-            with Image.open(sheet) as image:
-                width, height = image.size
-            plan = {
-                "name": body.get("title") or doc.folder.name,
-                "units": "inches",
-                "compass": compass_from_up(body.get("up", "north")),
-                "canvas": {
-                    "width_px": width,
-                    "height_px": height,
-                    "px_per_inch": float(body.get("px_per_inch") or 1.0),
-                    "origin_px": [0, 0],
-                },
-            }
-            doc.file, doc.plan, doc.saved = name, plan, None
-            doc.undo, doc.redo = [], []
-            doc.bump()
-            return doc.state()
+            info = doc.start_plan(
+                name,
+                up=body.get("up", "north"),
+                px_per_inch=body.get("px_per_inch"),
+                title=body.get("title"),
+                auto=bool(body.get("auto")),
+            )
+            return doc.state(**info)
 
     @app.post("/api/trace")
     def trace(body: dict = Body(default={})):

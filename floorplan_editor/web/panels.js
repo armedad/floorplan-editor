@@ -1,29 +1,28 @@
-// Side panels: folder and steps, properties of the selection, new plan, auto-trace.
+// Side panels: properties of the selection, flags, the folder's steps, view settings, and auto-trace.
 
 import { api, readFileBase64 } from "./api.js";
-import { formatLength, parseLength, round2, wallLength } from "./geom.js";
+import * as E from "./app.js";
+import { COMMANDS, context } from "./commands.js";
+import { copyAllFlags, copyText, deleteFlags, editFlagNote, flagText, renderFlagsPanel, setFlagDone, zoomToFlag } from "./flags.js";
+import { formatLength, parseLength, round2, wallAngle, wallFrame } from "./geom.js";
+import { dimsFor, opForDim } from "./measure.js";
+import { $, el } from "./ui.js";
 
-const $ = (id) => document.getElementById(id);
 const CARDINALS = ["north", "east", "south", "west"];
-let A = null;
 let app = null;
-
-function el(tag, attrs = {}, ...children) {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === "on") for (const [ev, fn] of Object.entries(v)) node.addEventListener(ev, fn);
-    else if (k === "class") node.className = v;
-    else if (v !== undefined && v !== null && v !== false) node.setAttribute(k, v === true ? "" : v);
-  }
-  for (const child of children.flat()) {
-    if (child === null || child === undefined || child === false) continue;
-    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
-  }
-  return node;
-}
 
 function confirmDiscard() {
   return !app.state || !app.state.dirty || confirm("You have unsaved changes. Discard them?");
+}
+
+export function showPanel(id, note) {
+  if (document.body.classList.contains("side-hidden")) E.toggleSide();
+  const panel = $(id);
+  panel.open = true;
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  panel.classList.add("attention");
+  setTimeout(() => panel.classList.remove("attention"), 1600);
+  if (note) E.message(note);
 }
 
 // ---------------------------------------------------------------- folder and steps
@@ -43,18 +42,14 @@ export function renderFiles(appRef) {
       el(
         "li",
         { class: name === s.file ? "current" : "" },
-        el("input", { type: "checkbox", "data-step": name, disabled: !mergeable, title: mergeable ? "include in merge" : "" }),
+        el("input", { type: "checkbox", "data-step": name, disabled: !mergeable, title: mergeable ? "include in merge" : "", "aria-label": `merge ${name}` }),
         el(
           "button",
           {
             type: "button",
             class: "file-name",
             title: `open ${name}`,
-            on: {
-              click: () => {
-                if (name !== s.file && confirmDiscard()) A.call("/api/open", { file: name }, { selectRef: false });
-              },
-            },
+            on: { click: () => name !== s.file && confirmDiscard() && E.call("/api/open", { file: name }, { selectRef: false }) },
           },
           name === s.file && s.dirty ? `${name} •` : name,
         ),
@@ -69,8 +64,8 @@ export function renderFiles(appRef) {
     );
   }
   if (!s.files.length) list.append(el("li", { class: "note" }, "No plan files here yet."));
-  if (s.file && !s.files.includes(s.file)) list.append(el("li", { class: "current" }, `${s.file} (new, unsaved)`));
-  $("save-step").title = `Save as ${s.next_step}`;
+  if (s.file && !s.files.includes(s.file)) list.append(el("li", { class: "current" }, `${s.file} (not saved yet)`));
+  $("save-step").title = `Save as ${s.next_step} (Ctrl+Shift+S)`;
   $("save-step").textContent = `Save as ${s.next_step.replace(".json", "")}`;
   const saved = $("saved-files");
   saved.replaceChildren();
@@ -82,84 +77,182 @@ export function renderFiles(appRef) {
     });
     if (s.saved.warnings.length) saved.append(el("div", { class: "error" }, s.saved.warnings.join("; ")));
   }
+  renderFlagsPanel();
 }
 
-// ---------------------------------------------------------------- properties
+// ---------------------------------------------------------------- fields
 
-function lengthField(label, value, commit, { hint = true } = {}) {
-  const input = el("input", { value: round2(value) });
-  input.addEventListener("change", () => {
-    const v = parseLength(input.value);
-    if (!Number.isFinite(v)) {
-      A.message(`Cannot read a length from ${input.value}`, true);
-      input.value = round2(value);
+const fmt = (v) => String(round2(v));
+
+/**
+ * A length field: takes 10'6", 126, or an expression; Arrow keys nudge by 1" (Shift 12", Alt 1/4")
+ * and apply at once; dragging the label scrubs the value.
+ */
+function lengthField(label, value, commit, { hint, unit = "length", min = -Infinity } = {}) {
+  const parse = unit === "length" ? parseLength : (t) => Number(String(t).replace(/[°\s]/g, ""));
+  const show = (v) => (unit === "length" ? formatLength(v) : unit === "angle" ? `${round2(v)}°` : String(round2(v)));
+  const input = el("input", { value: fmt(value), spellcheck: "false", "aria-label": label });
+  const note = el("span", { class: "hint" }, hint ?? show(value));
+  const apply = (v) => {
+    if (!Number.isFinite(v) || v < min) {
+      E.message(`Can't use ${input.value} for ${label}.`, true);
+      input.value = fmt(value);
       return;
     }
+    if (Math.abs(v - value) < 1e-6) return;
     commit(round2(v));
-  });
-  return el("div", { class: "field" }, el("label", {}, label), input, el("span", { class: "hint" }, hint ? formatLength(value) : ""));
-}
-
-function numberField(label, value, commit, unit = "") {
-  const input = el("input", { value: round2(value) });
-  input.addEventListener("change", () => {
-    const v = Number(input.value);
-    if (!Number.isFinite(v)) {
-      input.value = round2(value);
-      return;
+  };
+  input.addEventListener("change", () => apply(parse(input.value)));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      input.value = fmt(value);
+      input.blur();
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      const step = (e.shiftKey ? 12 : e.altKey ? 0.25 : 1) * (unit === "angle" ? (e.shiftKey ? 15 / 12 : 1) : 1) * (e.key === "ArrowUp" ? 1 : -1);
+      const current = parse(input.value);
+      apply((Number.isFinite(current) ? current : value) + step);
     }
-    commit(v);
   });
-  return el("div", { class: "field" }, el("label", {}, label), input, el("span", { class: "hint" }, unit));
+  const lab = el("label", { class: "scrub", title: `${label}: drag sideways to adjust, or type a value` }, label);
+  lab.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    lab.setPointerCapture(e.pointerId);
+    const x0 = e.clientX;
+    let v = value;
+    const move = (ev) => {
+      const rate = ev.shiftKey ? 1 : ev.altKey ? 0.05 : 0.25;
+      v = round2(value + (ev.clientX - x0) * rate);
+      if (unit === "length" && min >= 0) v = Math.max(min, v);
+      input.value = fmt(v);
+      note.textContent = show(v);
+    };
+    const up = () => {
+      lab.removeEventListener("pointermove", move);
+      lab.removeEventListener("pointerup", up);
+      if (v !== value) apply(v);
+    };
+    lab.addEventListener("pointermove", move);
+    lab.addEventListener("pointerup", up);
+  });
+  return el("div", { class: "field" }, lab, input, note);
 }
 
-function textField(label, value, commit) {
-  const input = el("input", { value: value ?? "" });
+function textField(label, value, commit, { multiline = false } = {}) {
+  const input = multiline ? el("textarea", { rows: 3, "aria-label": label }) : el("input", { value: value ?? "", "aria-label": label });
+  if (multiline) input.value = value ?? "";
   input.addEventListener("change", () => commit(input.value));
-  return el("div", { class: "field" }, el("label", {}, label), input, el("span"));
+  return el("div", { class: `field${multiline ? " wide" : ""}` }, el("label", {}, label), input, el("span"));
 }
 
 function selectField(label, value, options, commit) {
   const select = el(
     "select",
-    { on: { change: () => commit(select.value) } },
+    { "aria-label": label, on: { change: () => commit(select.value) } },
     options.map(([v, text]) => el("option", { value: v, selected: v === value }, text)),
   );
   return el("div", { class: "field" }, el("label", {}, label), select, el("span"));
 }
 
-function buttons(...items) {
-  return el("div", { class: "row wrap" }, items.map(([text, fn, cls]) => el("button", { class: cls || "", on: { click: fn } }, text)));
+function anchorRow(key, anchors) {
+  const current = app.opts.anchor[key] || (key.startsWith("fixtures:") ? "center" : "start");
+  return el(
+    "div",
+    { class: "anchor-row", role: "radiogroup", "aria-label": "which side stays put" },
+    el("span", { class: "hint" }, "Stays put:"),
+    ...["start", "center", "end"].map((a) =>
+      el(
+        "button",
+        {
+          type: "button",
+          role: "radio",
+          "aria-checked": String(a === current),
+          class: a === current ? "active" : "",
+          title: anchors[a],
+          on: { click: () => ((app.opts.anchor[key] = a), renderProps(app)) },
+        },
+        anchors[a].replace(/^Keep (the )?/, ""),
+      ),
+    ),
+  );
+}
+
+function dimFields(kind, id, dims, keys) {
+  const out = [];
+  for (const d of dims.filter((x) => keys.includes(x.key) || (keys.includes("gaps") && x.gap && !x.key.startsWith("gap-start") && !x.key.startsWith("gap-end")))) {
+    const label = d.gap ? gapLabel(d) : { length: "length", width: "width", w: "width", h: "depth" }[d.key] || d.key;
+    const anchorKey = `${kind}:${d.key}`;
+    out.push(
+      lengthField(label, d.value, (v) => {
+        const anchor = app.opts.anchor[anchorKey] || (kind === "fixtures" ? "center" : "start");
+        const op = opForDim(app.plan, kind, id, d, v, anchor);
+        if (op) E.send(op);
+        else E.message(`${label} can't be ${formatLength(v)}.`, true);
+      }, { min: d.gap ? 0 : 0.5 }),
+    );
+    if (d.anchors) out.push(anchorRow(anchorKey, d.anchors));
+  }
+  return out;
+}
+
+function gapLabel(d) {
+  if (d.key === "gap-start" || d.key === "gap-end") return d.title.replace("Distance from the ", "from ");
+  const dir = d.key.slice(4);
+  if (["left", "right", "up", "down"].includes(dir)) return `clear ${dir}`;
+  const m = d.title.match(/to ([^;]+);/);
+  return m ? `clear to ${m[1]}` : "clear";
 }
 
 function update(kind, id, fields) {
-  return A.send({ op: "update", kind, id, fields });
+  return E.send({ op: "update", kind, id, fields });
 }
 
 function idField(kind, obj) {
-  return textField("id", obj.id, (v) => update(kind, obj.id, { id: v.trim() }));
+  return textField("id", obj.id, (v) => v.trim() && update(kind, obj.id, { id: v.trim() }));
 }
+
+function more(title, ...items) {
+  return el("details", { class: "more" }, el("summary", {}, title), ...items.flat().filter(Boolean));
+}
+
+function actionsRow() {
+  const c = context();
+  const cmds = COMMANDS.filter((cmd) => cmd.bar && (!cmd.when || cmd.when(c)));
+  return el(
+    "div",
+    { class: "row wrap actions" },
+    cmds.map((cmd) =>
+      el("button", { type: "button", class: cmd.danger ? "danger" : "", title: `${cmd.label}${cmd.keys ? ` (${cmd.keys[0]})` : ""}`, on: { click: () => cmd.run() } }, cmd.barLabel ? cmd.barLabel(c) : cmd.label),
+    ),
+  );
+}
+
+// ---------------------------------------------------------------- properties by kind
 
 function wallProps(w) {
   const k = "walls";
-  const len = wallLength(w);
+  const dims = dimsFor(app.plan, k, w.id);
+  const f = wallFrame(w);
   return [
-    idField(k, w),
-    lengthField("x1", w.x1, (v) => update(k, w.id, { x1: v })),
-    lengthField("y1", w.y1, (v) => update(k, w.id, { y1: v })),
-    lengthField("x2", w.x2, (v) => update(k, w.id, { x2: v })),
-    lengthField("y2", w.y2, (v) => update(k, w.id, { y2: v })),
-    lengthField("thickness", w.thickness, (v) => update(k, w.id, { thickness: v })),
-    lengthField("length", len, (v) => {
-      if (v <= 0) return;
-      const ux = (w.x2 - w.x1) / len;
-      const uy = (w.y2 - w.y1) / len;
-      A.send({ op: "move_wall_end", id: w.id, end: "end", x: round2(w.x1 + ux * v), y: round2(w.y1 + uy * v), join: true });
-    }),
-    el("p", { class: "note" }, "Drag an end to stretch it; ends that meet another wall move together (hold Alt to pull it free). Double-click the wall to split it."),
-    buttons(
-      ["Split in the middle", () => A.send({ op: "split_wall", id: w.id, x: (w.x1 + w.x2) / 2, y: (w.y1 + w.y2) / 2 })],
-      ["Delete", () => A.deleteSelection()],
+    ...dimFields(k, w.id, dims, ["length"]),
+    lengthField(
+      "angle",
+      wallAngle(w),
+      (deg) => {
+        const a = (deg * Math.PI) / 180;
+        E.send({ op: "move_wall_end", id: w.id, end: "end", x: round2(w.x1 + f.len * Math.cos(a)), y: round2(w.y1 - f.len * Math.sin(a)), join: true });
+      },
+      { unit: "angle", hint: "° from right, counterclockwise" },
+    ),
+    lengthField("thickness", w.thickness, (v) => update(k, w.id, { thickness: v }), { min: 0.25 }),
+    ...dimFields(k, w.id, dims, ["gaps"]),
+    more(
+      "Ends and id",
+      lengthField("start x", w.x1, (v) => update(k, w.id, { x1: v })),
+      lengthField("start y", w.y1, (v) => update(k, w.id, { y1: v })),
+      lengthField("end x", w.x2, (v) => update(k, w.id, { x2: v })),
+      lengthField("end y", w.y2, (v) => update(k, w.id, { y2: v })),
+      idField(k, w),
     ),
   ];
 }
@@ -167,83 +260,61 @@ function wallProps(w) {
 function openingProps(o) {
   const k = "openings";
   const door = o.type === "door";
-  const items = [
-    idField(k, o),
-    selectField(
-      "type",
-      o.type,
-      [
-        ["door", "door"],
-        ["window", "window"],
-      ],
-      (v) => update(k, o.id, v === "door" ? { type: "door", hinge: "start", swing: "ccw" } : { type: "window", hinge: null, swing: null }),
+  const dims = dimsFor(app.plan, k, o.id);
+  return [
+    selectField("type", o.type, [["door", "door"], ["window", "window"]], (v) =>
+      update(k, o.id, v === "door" ? { type: "door", hinge: "start", swing: "ccw" } : { type: "window", hinge: null, swing: null }),
     ),
-    textField("wall", o.wall, (v) => update(k, o.id, { wall: v.trim() })),
-    lengthField("offset", o.offset, (v) => update(k, o.id, { offset: v })),
-    lengthField("width", o.width, (v) => update(k, o.id, { width: v })),
+    ...dimFields(k, o.id, dims, ["gap-start", "width", "gap-end"]),
+    door ? selectField("hinge", o.hinge || "start", [["start", "start end of the wall"], ["end", "far end of the wall"]], (v) => update(k, o.id, { hinge: v })) : null,
+    door ? selectField("swing", o.swing || "ccw", [["ccw", "counterclockwise"], ["cw", "clockwise"]], (v) => update(k, o.id, { swing: v })) : null,
+    more("Wall, offset, and id", textField("wall", o.wall, (v) => update(k, o.id, { wall: v.trim() })), lengthField("offset", o.offset, (v) => update(k, o.id, { offset: v }), { min: 0 }), idField(k, o)),
   ];
-  if (door) {
-    items.push(
-      selectField("hinge", o.hinge || "start", [["start", "start"], ["end", "end"]], (v) => update(k, o.id, { hinge: v })),
-      selectField("swing", o.swing || "ccw", [["ccw", "ccw"], ["cw", "cw"]], (v) => update(k, o.id, { swing: v })),
-      buttons(["Flip hinge (H)", () => A.flipDoor("hinge")], ["Flip swing (F)", () => A.flipDoor("swing")], ["Delete", () => A.deleteSelection()]),
-    );
-  } else items.push(buttons(["Delete", () => A.deleteSelection()]));
-  items.push(el("p", { class: "note" }, "Drag it along its wall; drag its end dots to change the width."));
-  return items;
 }
 
 function counterProps(c) {
   const k = "counters";
+  const dims = dimsFor(app.plan, k, c.id);
   if (c.points) {
-    const area = el("textarea", { spellcheck: "false" }, c.points.map(([x, y]) => `${x}, ${y}`).join("\n"));
+    const area = el("textarea", { spellcheck: "false", "aria-label": "corners" }, c.points.map(([x, y]) => `${x}, ${y}`).join("\n"));
     area.addEventListener("change", () => {
       const points = area.value
         .split(/\n+/)
         .map((line) => line.split(/[,\s]+/).filter(Boolean).map(Number))
         .filter((p) => p.length === 2 && p.every(Number.isFinite));
-      if (points.length < 3) return A.message("An outline needs at least 3 corners, one 'x, y' per line.", true);
+      if (points.length < 3) return E.message("An outline needs at least 3 corners, one 'x, y' per line.", true);
       update(k, c.id, { points });
     });
+    const edges = dims.filter((d) => d.key.startsWith("edge-"));
     return [
-      idField(k, c),
-      el("label", {}, "Corners (x, y in inches)"),
-      area,
-      el("p", { class: "note" }, "Drag a corner to move it, drag a midpoint dot to add a corner, Alt+click a corner to remove it."),
-      buttons(["Delete", () => A.deleteSelection()]),
+      ...edges.map((d) => lengthField(`edge ${Number(d.key.slice(5)) + 1}`, d.value, (v) => E.send(opForDim(app.plan, k, c.id, d, v)), { min: 0.5 })),
+      ...dimFields(k, c.id, dims, ["gaps"]),
+      el("p", { class: "note" }, "Typing an edge length moves the corner at its end. Drag a corner to move it, drag a midpoint dot to add one, Alt+click a corner to remove it."),
+      more("Corners (x, y in inches) and id", area, idField(k, c)),
     ];
   }
   const over = c.overhang || null;
   return [
-    idField(k, c),
-    lengthField("x", c.x, (v) => update(k, c.id, { x: v })),
-    lengthField("y", c.y, (v) => update(k, c.id, { y: v })),
-    lengthField("w", c.w, (v) => update(k, c.id, { w: v })),
-    lengthField("h", c.h, (v) => update(k, c.id, { h: v })),
-    selectField(
-      "overhang",
-      over ? over.edge : "",
-      [["", "none"], ...CARDINALS.map((d) => [d, d])],
-      (v) => update(k, c.id, { overhang: v ? { edge: v, inches: over ? over.inches : 12 } : null }),
+    ...dimFields(k, c.id, dims, ["w", "h"]),
+    ...dimFields(k, c.id, dims, ["gaps"]),
+    selectField("overhang", over ? over.edge : "", [["", "none"], ...CARDINALS.map((d) => [d, `${d} side`])], (v) =>
+      update(k, c.id, { overhang: v ? { edge: v, inches: over ? over.inches : 12 } : null }),
     ),
-    over ? lengthField("overhang in", over.inches, (v) => update(k, c.id, { overhang: { edge: over.edge, inches: v } })) : null,
-    buttons(["Edit as outline", () => A.send({ op: "box_to_polygon", id: c.id })], ["Delete", () => A.deleteSelection()]),
+    over ? lengthField("overhang", over.inches, (v) => update(k, c.id, { overhang: { edge: over.edge, inches: v } }), { min: 0 }) : null,
+    more("Position and id", lengthField("left x", c.x, (v) => update(k, c.id, { x: v })), lengthField("top y", c.y, (v) => update(k, c.id, { y: v })), idField(k, c)),
   ];
 }
 
 function fixtureProps(f) {
   const k = "fixtures";
   const types = (app.state && app.state.fixture_types) || [];
+  const dims = dimsFor(app.plan, k, f.id);
   return [
-    idField(k, f),
-    selectField("type", f.type, types.map((t) => [t, t]), (v) => update(k, f.id, { type: v })),
-    lengthField("x (center)", f.x, (v) => update(k, f.id, { x: v })),
-    lengthField("y (center)", f.y, (v) => update(k, f.id, { y: v })),
-    lengthField("w", f.w, (v) => update(k, f.id, { w: v })),
-    lengthField("h", f.h, (v) => update(k, f.id, { h: v })),
-    numberField("rotation", f.rot || 0, (v) => update(k, f.id, { rot: v ? ((v % 360) + 360) % 360 : null }), "degrees"),
-    el("p", { class: "note" }, "Drag the corner dot to resize, the yellow dot to rotate (snaps to 15°, Alt for free)."),
-    buttons(["Rotate 90° (R)", () => A.rotateSelection(90)], ["Delete", () => A.deleteSelection()]),
+    selectField("type", f.type, types.map((t) => [t, t.replace("_", " ")]), (v) => update(k, f.id, { type: v })),
+    ...dimFields(k, f.id, dims, ["w", "h"]),
+    lengthField("rotation", f.rot || 0, (v) => update(k, f.id, { rot: v ? ((v % 360) + 360) % 360 : null }), { unit: "angle", hint: "° clockwise" }),
+    ...dimFields(k, f.id, dims, ["gaps"]),
+    more("Center and id", lengthField("center x", f.x, (v) => update(k, f.id, { x: v })), lengthField("center y", f.y, (v) => update(k, f.id, { y: v })), idField(k, f)),
   ];
 }
 
@@ -251,23 +322,44 @@ function labelProps(label, index) {
   const k = "labels";
   return [
     textField("text", label.text, (v) => v.trim() && update(k, index, { text: v.trim() })),
-    lengthField("x", label.x, (v) => update(k, index, { x: v })),
-    lengthField("y", label.y, (v) => update(k, index, { y: v })),
-    numberField("size", label.size_px || 16, (v) => v > 0 && update(k, index, { size_px: v }), "px"),
-    buttons(["Delete", () => A.deleteSelection()]),
+    lengthField("center x", label.x, (v) => update(k, index, { x: v })),
+    lengthField("center y", label.y, (v) => update(k, index, { y: v })),
+    lengthField("size", label.size_px || 16, (v) => v > 0 && update(k, index, { size_px: v }), { unit: "number", hint: "px" }),
   ];
 }
 
 function eraseProps(r) {
   const k = "erase";
+  const dims = dimsFor(app.plan, k, r.id);
   return [
-    idField(k, r),
-    lengthField("x", r.x, (v) => update(k, r.id, { x: v })),
-    lengthField("y", r.y, (v) => update(k, r.id, { y: v })),
-    lengthField("w", r.w, (v) => update(k, r.id, { w: v })),
-    lengthField("h", r.h, (v) => update(k, r.id, { h: v })),
+    ...dimFields(k, r.id, dims, ["w", "h"]),
     el("p", { class: "note" }, "Whites out the sheet under it, in the editor and in saved overlays."),
-    buttons(["Delete", () => A.deleteSelection()]),
+    more("Position and id", lengthField("left x", r.x, (v) => update(k, r.id, { x: v })), lengthField("top y", r.y, (v) => update(k, r.id, { y: v })), idField(k, r)),
+  ];
+}
+
+function flagProps(f) {
+  const on = f.target ? E.describeKey(`${f.target[0]}:${f.target[1]}`) : null;
+  return [
+    textField("note", f.note || "", (v) => E.call("/api/flags", { action: "update", id: f.id, note: v }, { selectRef: false }), { multiline: true }),
+    el(
+      "label",
+      { class: "row" },
+      el("input", { type: "checkbox", checked: !!f.done, on: { change: (e) => setFlagDone(f.id, e.target.checked) } }),
+      " Done (handled)",
+    ),
+    on ? el("p", { class: "note" }, `Dropped on ${on}.`) : null,
+    f.x !== undefined ? lengthField("x", f.x, (v) => E.call("/api/flags", { action: "update", id: f.id, x: v, y: f.y }, { selectRef: false })) : null,
+    f.y !== undefined ? lengthField("y", f.y, (v) => E.call("/api/flags", { action: "update", id: f.id, x: f.x, y: v }, { selectRef: false })) : null,
+    el("p", { class: "note" }, `${f.by === "cursor" ? "Placed by Cursor" : "Tell Cursor about it by number"}: “${f.id}”. Its note, place, and what's under it are what Cursor sees.`),
+    el(
+      "div",
+      { class: "row wrap" },
+      el("button", { type: "button", on: { click: () => copyText(flagText(f), f.id) } }, "Copy for Cursor"),
+      el("button", { type: "button", on: { click: () => zoomToFlag(f.id) } }, "Zoom to it"),
+      el("button", { type: "button", on: { click: () => editFlagNote(f.id) } }, "Edit note…"),
+      el("button", { type: "button", class: "danger", on: { click: () => deleteFlags([f.id]) } }, "Remove"),
+    ),
   ];
 }
 
@@ -277,13 +369,36 @@ function planProps(plan) {
     .join(", ");
   const c = plan.compass;
   return [
-    textField("name", plan.name || "", (v) => A.send({ op: "set_meta", name: v.trim() })),
-    textField("notes", plan.notes || "", (v) => A.send({ op: "set_meta", notes: v.trim() })),
-    selectField("up is", c.up, CARDINALS.map((d) => [d, d]), (v) => A.send({ op: "set_compass", up: v })),
+    textField("name", plan.name || "", (v) => E.send({ op: "set_meta", name: v.trim() })),
+    textField("notes", plan.notes || "", (v) => E.send({ op: "set_meta", notes: v.trim() }), { multiline: true }),
+    selectField("up is", c.up, CARDINALS.map((d) => [d, d]), (v) => E.send({ op: "set_compass", up: v })),
     el("div", { class: "note" }, `Right is ${c.right}, down is ${c.down}, left is ${c.left}.`),
-    el("div", { class: "field" }, el("label", {}, "scale"), el("span", {}, `${plan.canvas.px_per_inch.toFixed(4)} px per inch`), el("span")),
-    buttons(["Set scale (K)", () => A.setTool("calibrate")], ["Fit view (0)", () => A.fitView()]),
+    lengthField(
+      "scale",
+      plan.canvas.px_per_inch,
+      (v) => v > 0 && E.send({ op: "calibrate", p1: [0, 0], p2: [v, 0], length: 1 }),
+      { unit: "number", hint: "sheet px per inch" },
+    ),
+    el(
+      "div",
+      { class: "row wrap" },
+      el("button", { type: "button", title: "Click two ends of a length you know (K)", on: { click: () => E.setTool("calibrate") } }, "Set scale from a known length (K)"),
+      el("button", { type: "button", on: { click: () => E.fitView() } }, "Fit view (0)"),
+    ),
     el("p", { class: "note" }, counts),
+    el("p", { class: "note" }, "Select something to see and type its sizes. Ctrl+K lists every command."),
+  ];
+}
+
+function multiProps(info) {
+  const counts = {};
+  for (const key of info.keys) {
+    const kind = key.split(":")[0];
+    counts[kind] = (counts[kind] || 0) + 1;
+  }
+  return [
+    el("p", {}, Object.entries(counts).map(([k, n]) => `${n} ${n === 1 ? k.replace(/s$/, "") : k}`).join(", ")),
+    el("p", { class: "note" }, "Drag any of them to move them together, use the arrow keys to nudge, or Move… for an exact distance. Shift+click adds or removes one."),
   ];
 }
 
@@ -294,27 +409,32 @@ export function renderProps(appRef, extraErrors = null) {
   const plan = app.plan;
   if (!plan) {
     $("props-title").textContent = "Plan";
-    box.append(el("p", { class: "note" }, "No plan open."));
+    box.append(el("p", { class: "note" }, "No plan open. Open one, or drop a plan or floor plan image anywhere."));
     return;
   }
+  const info = E.selectionInfo();
   let title = "Plan";
   let items;
-  if (app.sel) {
-    const [kind, id] = A.splitKey(app.sel);
-    const obj = A.getObject(app.sel);
-    title = { walls: "Wall", openings: obj.type === "door" ? "Door" : "Window", counters: "Counter", fixtures: "Fixture", labels: "Label", erase: "Erase region" }[kind];
+  if (info.n > 1) {
+    title = `${info.n} selected`;
+    items = multiProps(info);
+  } else if (info.n === 1 && info.obj) {
+    title = E.selectionTitle();
+    const { kind, id, obj } = info;
     if (kind === "walls") items = wallProps(obj);
     else if (kind === "openings") items = openingProps(obj);
     else if (kind === "counters") items = counterProps(obj);
     else if (kind === "fixtures") items = fixtureProps(obj);
     else if (kind === "labels") items = labelProps(obj, id);
+    else if (kind === "flags") items = flagProps(obj);
     else items = eraseProps(obj);
   } else items = planProps(plan);
   $("props-title").textContent = title;
-  box.append(...items.filter(Boolean));
+  box.append(...items.flat().filter(Boolean));
+  if (info.n && info.planKeys.length) box.append(actionsRow());
   const errors = extraErrors || (app.state && app.state.errors) || [];
   if (errors.length) {
-    box.append(el("h2", { class: "error" }, `${errors.length} problem${errors.length > 1 ? "s" : ""} (fix before saving)`));
+    box.append(el("h3", { class: "error" }, `${errors.length} problem${errors.length > 1 ? "s" : ""} (fix before saving)`));
     box.append(el("ul", { class: "errors" }, errors.slice(0, 40).map((e) => el("li", {}, e))));
   }
 }
@@ -330,19 +450,32 @@ function traceSettings() {
   };
 }
 
-async function tracePreview() {
+export async function runTrace(mode) {
   if (!app.plan) return;
-  try {
-    const result = await api("/api/trace", { preview: true, settings: traceSettings() });
-    app.traceWalls = result.walls;
-    A.renderTrace();
-    $("trace-note").textContent = `${result.walls.length} walls found (green). Adjust and preview again, or Apply.`;
-  } catch (err) {
-    A.message(err.message, true);
+  showPanel("trace-panel");
+  if (mode === "preview") {
+    try {
+      const result = await api("/api/trace", { preview: true, settings: traceSettings() });
+      app.traceWalls = result.walls;
+      E.renderTrace();
+      $("trace-note").textContent = `${result.walls.length} walls found (green). Adjust and preview again, or Add them.`;
+    } catch (err) {
+      E.message(err.message, true);
+    }
+    return;
+  }
+  const replace = $("trace-replace").checked;
+  if (replace && !confirm("Replace all existing walls (and their doors and windows) with the traced walls?")) return;
+  const state = await E.call("/api/trace", { preview: false, replace, settings: traceSettings() }, { selectRef: false });
+  if (state) {
+    app.traceWalls = null;
+    E.renderTrace();
+    $("trace-note").textContent = "";
+    E.message(`Added ${state.traced} traced walls. Undo (Ctrl+Z) takes them all back out.`);
   }
 }
 
-async function openNewDialog() {
+export async function openNewDialog() {
   if (!confirmDiscard()) return;
   const s = app.state;
   $("new-sheet-note").textContent =
@@ -356,7 +489,8 @@ async function createPlan() {
   const body = {
     name: $("new-name").value.trim() || "plan.json",
     up: $("new-up").value,
-    px_per_inch: Number($("new-ppi").value) || 1,
+    px_per_inch: parseLength($("new-ppi").value) || null,
+    auto: $("new-auto").checked,
   };
   if (file) body.image = { filename: file.name, data: await readFileBase64(file) };
   let state = null;
@@ -364,43 +498,41 @@ async function createPlan() {
     state = await api("/api/new", body);
   } catch (err) {
     if (/already exists/.test(err.message) && confirm(`${body.name} already exists. Replace it when you save?`)) {
-      state = await api("/api/new", { ...body, overwrite: true }).catch((e) => (A.message(e.message, true), null));
-    } else A.message(err.message, true);
+      state = await api("/api/new", { ...body, overwrite: true }).catch((e) => (E.message(e.message, true), null));
+    } else E.message(err.message, true);
   }
   if (!state) return;
   app.fittedFor = null;
+  app.selection.clear();
   app.sel = null;
-  A.setState(state);
-  A.message("New plan created. Next: Scale (K) with a known dimension, then Auto-trace or draw walls, then Save.");
-  $("trace-panel").scrollIntoView({ behavior: "smooth" });
+  E.setState(state);
+  E.message(
+    state.traced !== undefined
+      ? `New plan: traced ${state.traced} walls${state.estimated_px_per_inch ? ", scale guessed from wall thickness" : ""}. Check the scale with Scale (K), then Save.`
+      : "New plan created. Next: Scale (K) with a known dimension, then Auto-trace or draw walls, then Save.",
+  );
 }
 
-export function initPanels(appRef, actions) {
+export function initPanels(appRef) {
   app = appRef;
-  A = actions;
   $("folder-form").addEventListener("submit", (e) => {
     e.preventDefault();
     if (!confirmDiscard()) return;
+    app.selection.clear();
     app.sel = null;
     app.traceWalls = null;
-    A.call("/api/folder", { path: $("folder-input").value.trim() }, { selectRef: false });
+    E.call("/api/folder", { path: $("folder-input").value.trim().replace(/^"|"$/g, "") }, { selectRef: false });
   });
   $("merge").addEventListener("click", () => {
     const steps = [...document.querySelectorAll("#file-list input[data-step]:checked")].map((c) => c.dataset.step);
-    if (!steps.length) return A.message("Check the steps to merge first.", true);
+    if (!steps.length) return E.message("Check the steps to merge first.", true);
     if (!confirmDiscard()) return;
-    A.call("/api/merge", { steps }, { selectRef: false });
+    E.call("/api/merge", { steps }, { selectRef: false });
   });
-  $("save-as").addEventListener("click", () => {
-    const name = prompt("Save as (plan-<name>.json)", "plan-");
-    if (name) A.save("as", name);
-  });
-  $("revert").addEventListener("click", () => {
-    if (confirm("Reload the file from disk and drop unsaved changes?")) A.call("/api/revert", {}, { selectRef: false });
-  });
+  $("save-as").addEventListener("click", () => E.saveAs());
+  $("revert").addEventListener("click", () => E.revert());
   $("view-overlay").addEventListener("click", () => window.open(`/api/overlay?t=${Date.now()}`, "_blank"));
   $("new-plan").addEventListener("click", openNewDialog);
-  $("empty-new").addEventListener("click", openNewDialog);
   $("new-form").addEventListener("submit", (e) => {
     if (e.submitter && e.submitter.value === "create") createPlan();
   });
@@ -409,23 +541,16 @@ export function initPanels(appRef, actions) {
     const out = document.querySelector(`output[for="${id}"]`);
     out.textContent = input.value;
     input.addEventListener("input", () => (out.textContent = input.value));
-    input.addEventListener("change", () => app.traceWalls && tracePreview());
+    input.addEventListener("change", () => app.traceWalls && runTrace("preview"));
   }
-  $("trace-preview").addEventListener("click", tracePreview);
+  $("trace-preview").addEventListener("click", () => runTrace("preview"));
   $("trace-clear").addEventListener("click", () => {
     app.traceWalls = null;
-    A.renderTrace();
+    E.renderTrace();
     $("trace-note").textContent = "";
   });
-  $("trace-apply").addEventListener("click", async () => {
-    const replace = $("trace-replace").checked;
-    if (replace && !confirm("Replace all existing walls (and their doors and windows) with the traced walls?")) return;
-    const state = await A.call("/api/trace", { preview: false, replace, settings: traceSettings() }, { selectRef: false });
-    if (state) {
-      app.traceWalls = null;
-      A.renderTrace();
-      $("trace-note").textContent = "";
-      A.message(`Added ${state.traced} traced walls. Undo (Ctrl+Z) takes them all back out.`);
-    }
-  });
+  $("trace-apply").addEventListener("click", () => runTrace("apply"));
+  $("flags-add").addEventListener("click", () => E.setTool("flag"));
+  $("flags-copy").addEventListener("click", copyAllFlags);
+  $("flags-clear").addEventListener("click", () => E.call("/api/flags", { action: "clear_done" }, { selectRef: false }));
 }

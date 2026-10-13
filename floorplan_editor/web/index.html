@@ -7,25 +7,31 @@
   </head>
   <body>
     <header id="toolbar">
-      <div class="group" id="tools">
-        <button data-tool="select" title="Select, move, drag handles (V)">Select <kbd>V</kbd></button>
-        <button data-tool="wall" title="Draw walls, click each corner; double-click or Esc ends (W)">Wall <kbd>W</kbd></button>
-        <button data-tool="door" title="Click a wall to add a door (D)">Door <kbd>D</kbd></button>
-        <button data-tool="window" title="Click a wall to add a window (N)">Window <kbd>N</kbd></button>
-        <button data-tool="counter" title="Drag a box counter (C)">Counter <kbd>C</kbd></button>
-        <button data-tool="polygon" title="Click the corners of a counter outline; double-click or Enter closes (P)">Outline <kbd>P</kbd></button>
-        <button data-tool="fixture" title="Place a fixture (X)">Fixture <kbd>X</kbd></button>
-        <button data-tool="label" title="Click to add a text label (T)">Label <kbd>T</kbd></button>
-        <button data-tool="erase" title="Drag a white-out region over printed ink on the sheet (E)">Erase <kbd>E</kbd></button>
-        <button data-tool="calibrate" title="Click two points a known distance apart, then type the length (K)">Scale <kbd>K</kbd></button>
+      <div class="group split-button">
+        <button id="open" class="primary" title="Open a plan, a folder, or a floor plan image to trace (Ctrl+O). You can also drop files anywhere.">Open…</button>
+        <button id="open-more" class="primary" title="Recent folders and other ways to open" aria-label="more ways to open">▾</button>
+      </div>
+      <div class="group" id="tools" role="toolbar" aria-label="tools">
+        <button id="tool-select" data-tool="select" title="Select and move; drag across empty space to select an area (V)">Select <kbd>V</kbd></button>
+        <button id="tool-wall" data-tool="wall" title="Draw walls: click each corner, or type lengths (W)">Wall <kbd>W</kbd></button>
+        <button id="tool-door" data-tool="door" title="Click a wall to add a door (D)">Door <kbd>D</kbd></button>
+        <button id="tool-window" data-tool="window" title="Click a wall to add a window (N)">Window <kbd>N</kbd></button>
+        <button id="tool-counter" data-tool="counter" title="Drag a box counter, or click a corner and type width, depth (C)">Counter <kbd>C</kbd></button>
+        <button id="tool-polygon" data-tool="polygon" title="Click the corners of a counter outline (P)">Outline <kbd>P</kbd></button>
+        <button id="tool-fixture" data-tool="fixture" title="Place a fixture (X)">Fixture <kbd>X</kbd></button>
+        <button id="tool-label" data-tool="label" title="Add a text label (T)">Label <kbd>T</kbd></button>
+        <button id="tool-erase" data-tool="erase" title="White out printed ink on the sheet (E)">Erase <kbd>E</kbd></button>
+        <button id="tool-calibrate" data-tool="calibrate" title="Set the scale: click two ends of a known length (K)">Scale <kbd>K</kbd></button>
+        <button id="tool-flag" data-tool="flag" class="flag-tool" title="Drop a numbered flag to point Cursor at a spot or area (F)">Flag <kbd>F</kbd></button>
       </div>
       <div class="group" id="tool-options"></div>
       <div class="group right">
-        <button id="toggle-side" title="Show or hide the side panel (\)">Panel</button>
+        <button id="palette-btn" title="Every command and its shortcut (Ctrl+K)">Commands <kbd>Ctrl+K</kbd></button>
         <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
         <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
         <button id="save" title="Save over the open file (Ctrl+S)">Save</button>
-        <button id="save-step" class="primary" title="Save as the next plan-stepN.json">Save as new step</button>
+        <button id="save-step" title="Save as the next plan-stepN.json (Ctrl+Shift+S)">Save as new step</button>
+        <button id="toggle-side" title="Show or hide the side panel (\)" aria-label="toggle side panel">◧</button>
       </div>
     </header>
     <main>
@@ -37,20 +43,49 @@
             <g id="plan-layer"></g>
             <g id="erase-layer"></g>
             <g id="trace-layer"></g>
+            <g id="flag-layer"></g>
             <g id="ui-layer"></g>
           </g>
         </svg>
+        <div id="hint" hidden></div>
+        <div id="actionbar" role="toolbar" aria-label="actions for the selection" hidden></div>
         <div id="empty" hidden>
-          <p>No plan in this folder yet.</p>
-          <button id="empty-new" class="primary">New plan from a sheet image…</button>
+          <div class="empty-card">
+            <h1>Open a floor plan</h1>
+            <p>Pick a plan <code>.json</code>, a folder of plans, or a floor plan image (<code>.png</code>, <code>.jpg</code>). An image is traced into walls automatically; open the same image again and you're back in that project.</p>
+            <div class="row wrap center">
+              <button id="empty-open" class="primary big">Open…</button>
+              <button id="empty-browse">Choose in the browser…</button>
+              <button id="empty-sheet" hidden></button>
+            </div>
+            <p class="note">Or drop files anywhere on this window.</p>
+            <div id="empty-recent"></div>
+          </div>
+        </div>
+        <div id="dropzone" hidden>
+          <div>Drop a plan .json, a folder's plan and image together, or a floor plan image to trace</div>
         </div>
       </div>
       <aside id="side">
-        <section id="files-panel">
-          <h2>Folder and steps</h2>
+        <details id="props-panel" open>
+          <summary><h2 id="props-title">Plan</h2></summary>
+          <div id="props"></div>
+        </details>
+        <details id="flags-panel" open>
+          <summary><h2>Flags <span id="flag-count" class="count"></span></h2></summary>
+          <p class="note">Flags are numbered pins for pointing at things. Drop one (F), add a note, and tell Cursor “look at F3”. Cursor reads them, and can drop its own.</p>
+          <ul id="flags-list"></ul>
+          <div class="row wrap">
+            <button id="flags-add" class="flag-tool">Drop a flag (F)</button>
+            <button id="flags-copy">Copy open flags for Cursor</button>
+            <button id="flags-clear">Remove done</button>
+          </div>
+        </details>
+        <details id="files-panel">
+          <summary><h2>Folder and steps</h2></summary>
           <form id="folder-form" class="row">
-            <input id="folder-input" spellcheck="false" />
-            <button type="submit">Open</button>
+            <input id="folder-input" spellcheck="false" aria-label="folder path" />
+            <button type="submit">Go</button>
           </form>
           <ul id="file-list"></ul>
           <div class="row wrap">
@@ -58,25 +93,22 @@
             <button id="save-as">Save as…</button>
             <button id="revert">Revert</button>
             <button id="view-overlay">View overlay</button>
-            <button id="new-plan">New plan…</button>
+            <button id="new-plan">New plan (manual setup)…</button>
           </div>
           <div id="saved-files" class="note"></div>
-        </section>
-        <section id="view-panel">
-          <h2>View</h2>
+        </details>
+        <details id="view-panel">
+          <summary><h2>View</h2></summary>
           <label class="row"><input type="checkbox" id="show-sheet" checked /> Sheet image</label>
           <label class="row">Opacity <input type="range" id="sheet-opacity" min="0" max="1" step="0.05" value="0.55" /></label>
+          <label class="row"><input type="checkbox" id="show-dims" checked /> Measurements on the selection</label>
           <label class="row"><input type="checkbox" id="show-erase" checked /> Erase regions</label>
           <label class="row"><input type="checkbox" id="snap" checked /> Snap to corners and walls</label>
           <label class="row"><input type="checkbox" id="grid" checked /> Snap to 1&Prime; grid</label>
-        </section>
-        <section id="props-panel">
-          <h2 id="props-title">Plan</h2>
-          <div id="props"></div>
-        </section>
-        <section id="trace-panel">
-          <h2>Auto-trace walls</h2>
-          <p class="note">Finds long dark bars on the sheet. Preview, adjust, then apply and clean up by hand.</p>
+        </details>
+        <details id="trace-panel">
+          <summary><h2>Auto-trace walls</h2></summary>
+          <p class="note">Finds long dark bars on the sheet. Preview, adjust, then add them and clean up by hand.</p>
           <label class="row">Ink darker than <input type="range" id="tr-dark" min="20" max="240" value="110" /><output for="tr-dark"></output></label>
           <label class="row">Thinnest wall (px) <input type="range" id="tr-min" min="1" max="20" value="3" /><output for="tr-min"></output></label>
           <label class="row">Thickest wall (px) <input type="range" id="tr-max" min="4" max="60" value="24" /><output for="tr-max"></output></label>
@@ -85,23 +117,34 @@
             <button id="trace-preview">Preview</button>
             <button id="trace-clear">Clear preview</button>
             <label><input type="checkbox" id="trace-replace" /> Replace existing walls</label>
-            <button id="trace-apply" class="primary">Apply</button>
+            <button id="trace-apply" class="primary">Add them</button>
           </div>
           <div id="trace-note" class="note"></div>
-        </section>
+        </details>
       </aside>
     </main>
     <footer id="status">
-      <span id="status-msg"></span>
+      <span id="status-msg" role="status"></span>
       <span id="status-cursor"></span>
       <span id="status-snap"></span>
       <span id="status-zoom"></span>
       <span id="status-file"></span>
     </footer>
 
+    <div id="menu" role="menu" hidden></div>
+    <div id="pop" role="dialog" hidden></div>
+    <div id="palette" hidden>
+      <div class="palette-box" role="dialog" aria-label="commands">
+        <input id="palette-input" placeholder="Type a command (delete, flag, scale, open…)" spellcheck="false" autocomplete="off" aria-label="search commands" />
+        <ul id="palette-list" role="listbox"></ul>
+      </div>
+    </div>
+    <input type="file" id="upload" accept=".json,.png,.jpg,.jpeg" multiple hidden />
+
     <dialog id="new-dialog">
       <form method="dialog" id="new-form">
         <h2>New plan from a sheet image</h2>
+        <p class="note">Usually you don't need this: Open (or drop) an image and it is set up and traced for you.</p>
         <label>Sheet image (.png or .jpg)<input type="file" id="new-image" accept=".png,.jpg,.jpeg" /></label>
         <p class="note" id="new-sheet-note"></p>
         <label>Which way is up on the sheet?
@@ -112,7 +155,8 @@
             <option value="west">West</option>
           </select>
         </label>
-        <label>Pixels per inch (set it later with the Scale tool if unsure)<input id="new-ppi" value="1" /></label>
+        <label>Pixels per inch (leave empty to guess from wall thickness)<input id="new-ppi" value="" /></label>
+        <label class="inline"><input type="checkbox" id="new-auto" checked /> Trace walls automatically</label>
         <label>File name<input id="new-name" value="plan.json" /></label>
         <div class="row right">
           <button value="cancel">Cancel</button>

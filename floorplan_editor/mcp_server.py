@@ -42,10 +42,13 @@ mcp = FastMCP(
         "Drives the floorplan editor: a local web app that edits floor plan JSON (walls, doors, "
         "windows, counters, fixtures, labels, erase regions) laid over a source sheet image. "
         "Coordinates are inches; x grows right and y grows down, like the sheet. "
-        "Start with editor_status (or start_editor with a folder). Use find_objects to locate "
-        "things by position, view_image to look at the sheet, overlay, or plan (crop with a "
-        "region in inches), then edit. Edits stay in memory until save; save mode 'step' "
-        "writes the next plan-stepN.json. The user's browser, if open, updates live."
+        "Start with editor_status (or start_editor with a folder, or open_anything with any file). "
+        "The user drops numbered flags (F1, F2, ...) on the drawing to point at things; when they "
+        "mention a flag, call list_flags to see where it is and what is under it, and "
+        "view_image(flag=...) to look. Use find_objects to locate things by position, view_image "
+        "to look at the sheet, overlay, or plan (crop with a region in inches), then edit. Edits "
+        "stay in memory until save; save mode 'step' writes the next plan-stepN.json. The user's "
+        "browser, if open, updates live. Mark a flag done with update_flag once it's handled."
     ),
 )
 
@@ -127,6 +130,9 @@ def _summary(state: dict, **extra) -> dict:
         "can_redo": state.get("can_redo"),
         "counts": _counts(plan),
     }
+    open_flags = [f["id"] for f in state.get("flags") or [] if not f.get("done")]
+    if open_flags:
+        out["open_flags"] = open_flags
     if state.get("errors"):
         out["errors"] = state["errors"][:20]
     if state.get("saved"):
@@ -188,8 +194,9 @@ def object_box(plan: dict, kind: str, obj: dict) -> tuple[float, float, float, f
         x, y = float(obj["x"]), float(obj["y"])
         return (x, y, x, y)
     x, y, w, h = (float(obj[k]) for k in ("x", "y", "w", "h"))
-    if kind == "fixtures" and obj.get("rot"):
-        corners = [rotate(lx, ly, float(obj["rot"])) for lx, ly in ((0, 0), (w, 0), (w, h), (0, h))]
+    if kind == "fixtures":
+        half = ((-w / 2, -h / 2), (w / 2, -h / 2), (w / 2, h / 2), (-w / 2, h / 2))
+        corners = [rotate(lx, ly, float(obj.get("rot", 0))) for lx, ly in half]
         xs = [x + cx for cx, _ in corners]
         ys = [y + cy for _, cy in corners]
         return (min(xs), min(ys), max(xs), max(ys))
@@ -225,7 +232,7 @@ def describe(plan: dict, kind: str, obj: dict) -> str:
             return f"counter outline with {len(obj['points'])} corners"
         return f"box counter {obj['w']}x{obj['h']} at ({obj['x']}, {obj['y']})"
     if kind == "fixtures":
-        return f"{obj['type']} {obj['w']}x{obj['h']} at ({obj['x']}, {obj['y']}), rot {obj.get('rot', 0)}"
+        return f"{obj['type']} {obj['w']}x{obj['h']} centered at ({obj['x']}, {obj['y']}), rot {obj.get('rot', 0)}"
     if kind == "labels":
         return f"label {obj['text']!r} at ({obj['x']}, {obj['y']})"
     return f"erase region {obj['w']}x{obj['h']} at ({obj['x']}, {obj['y']})"
@@ -406,6 +413,31 @@ def import_file(
 
 
 @mcp.tool()
+def open_anything(path: str, open_browser: bool = True, discard_unsaved: bool = False) -> dict:
+    """Open whatever is at `path`, the way the editor's Open button does.
+
+    A plan folder opens. A plan JSON opens in its own folder. A floor plan image opens the plans
+    already made for it (next to it, or in the workspace); otherwise it becomes a new project in
+    the workspace with its walls traced and the scale guessed from wall thickness, saved as
+    plan.json. Starts the editor if it isn't running.
+    """
+    target = Path(path).expanduser().resolve()
+    if not target.exists():
+        raise ToolError(f"{target} not found")
+    if not _running():
+        start_editor(str(target if target.is_dir() else target.parent), open_browser=open_browser)
+    else:
+        _require_clean(discard_unsaved)
+    state = _post("/api/open-any", {"path": str(target)})
+    opened = state.get("opened") or {}
+    _ui({"action": "fit"})
+    _note(opened.get("message", f"opened {target.name}"))
+    if open_browser and not state.get("browsers"):
+        webbrowser.open(URL + "/")
+    return _summary(state, opened=opened, sheet=state.get("sheet"), files=state.get("files"))
+
+
+@mcp.tool()
 def new_plan_from_image(
     image_path: str | None = None,
     name: str = BASE,
@@ -445,14 +477,41 @@ def new_plan_from_image(
     return _summary(state, sheet=state.get("sheet"), traced=state.get("traced"))
 
 
+FLAG_RGB = (255, 109, 0)
+DONE_RGB = (130, 130, 130)
+
+
+def draw_flags(image: PILImage.Image, flags: list[dict]) -> None:
+    """Draw flags as numbered pins (regions as outlined boxes), sized to read at any image size."""
+    from PIL import ImageDraw, ImageFont
+
+    draw = ImageDraw.Draw(image)
+    r = max(9, round(max(image.size) / 110))
+    try:
+        font = ImageFont.load_default(size=round(r * 1.2))
+    except TypeError:
+        font = ImageFont.load_default()
+    for flag in flags:
+        color = DONE_RGB if flag.get("done") else FLAG_RGB
+        x, y = flag["px"]
+        if flag.get("size"):
+            w, h = flag["size"]
+            draw.rectangle([x, y, x + w, y + h], outline=color, width=max(2, r // 4))
+        draw.ellipse([x - r, y - 2 * r - r, x + r, y - r], fill=color, outline=(255, 255, 255), width=2)
+        draw.polygon([(x - r * 0.6, y - r * 1.4), (x + r * 0.6, y - r * 1.4), (x, y)], fill=color)
+        draw.text((x, y - 2 * r), flag["id"], fill=(255, 255, 255), font=font, anchor="mm")
+
+
 @mcp.tool()
 def view_image(
     source: Literal["overlay", "sheet", "plan", "file"] = "overlay",
     file: str | None = None,
     region: list[float] | None = None,
+    flag: str | None = None,
     padding: float = 12,
     max_px: int = 1200,
     erase: bool = True,
+    show_flags: bool = True,
 ):
     """Look at the drawing. Returns a PNG.
 
@@ -461,6 +520,8 @@ def view_image(
       on white), or 'file' (a .png in the folder, named by `file`, such as plan-step1-overlay.png).
     region: [x0, y0, x1, y1] in inches to crop to, plus `padding` inches around it. Small crops
       are enlarged so details are readable.
+    flag: crop around a flag (F3), or the box it marks, with 36" of room unless padding is larger.
+    show_flags: draw the user's flags as orange numbered pins (gray once done).
     max_px: longest side of the returned image.
     """
     if source == "file":
@@ -472,6 +533,18 @@ def view_image(
     data = _request("GET", path).content
     image = PILImage.open(io.BytesIO(data)).convert("RGB")
     caption = f"{source}{' ' + file if file else ''}: {image.width}x{image.height}px"
+    if flag or show_flags:
+        flags = _get("/api/state").get("flags") or []
+        if flag:
+            match = next((f for f in flags if f["id"].lower() == flag.lower()), None)
+            if match is None or "x" not in match:
+                raise ToolError(f"no flag {flag!r} on an open plan")
+            x0, y0 = match["x"], match["y"]
+            region = [x0, y0, x0 + match.get("w", 0), y0 + match.get("h", 0)]
+            padding = max(padding, 36)
+            caption += f", around {match['id']}"
+        if show_flags and flags:
+            draw_flags(image, flags)
     if region:
         state = _get("/api/state")
         plan = state.get("plan")
@@ -551,6 +624,9 @@ Operations (each a dict with "op"):
 - update: {"op":"update","kind":K,"id":ID,"fields":{...}}; a field set to null is removed.
 - delete: {"op":"delete","kind":K,"id":ID}; deleting a wall deletes its doors and windows.
 - move: {"op":"move","kind":K,"id":ID,"dx":..,"dy":..,"join":true}; walls drag joined wall ends along.
+- move_group / duplicate / delete_many: {"op":..,"items":[[K,ID],...],"dx":..,"dy":..}; a group moves
+  shared corners once; duplicate copies walls with their doors and windows.
+- resize_wall: {"op":"resize_wall","id":WALL,"length":..,"anchor":"start"|"center"|"end","join":true}
 - move_wall_end: {"op":"move_wall_end","id":WALL,"end":"start"|"end","x":..,"y":..,"join":true,"snap":tol}
 - split_wall: {"op":"split_wall","id":WALL,"x":..,"y":..}
 - move_vertex / insert_vertex / delete_vertex: {"id":COUNTER,"index":i,"x":..,"y":..}
@@ -562,7 +638,7 @@ Operations (each a dict with "op"):
 - add_walls: {"op":"add_walls","walls":[...],"replace":false}
 Object fields: walls {id,x1,y1,x2,y2,thickness}; openings {id,wall,type:door|window,offset,width,
 hinge:start|end,swing:cw|ccw}; counters {id,x,y,w,h,overhang?:{edge,inches}} or {id,points:[[x,y],...]};
-fixtures {id,type,x,y,w,h,rot?} (rot turns clockwise about x,y); labels {text,x,y,size_px?};
+fixtures {id,type,x,y,w,h,rot?} (x,y is the center; rot turns clockwise); labels {text,x,y,size_px?};
 erase {id,x,y,w,h}. Fixture types: refrigerator, range, oven, dishwasher, toilet, tub, soaking_tub,
 sink, washer, dryer, washer_dryer, stool, generic.
 """
@@ -672,7 +748,7 @@ def flip_door(door_id: str, what: Literal["swing", "hinge"] = "swing") -> dict:
 
 @mcp.tool()
 def rotate_fixture(fixture_id: str, degrees: float = 90) -> dict:
-    """Turn a fixture clockwise by `degrees` about its x, y corner (negative turns counterclockwise)."""
+    """Turn a fixture clockwise by `degrees` about its center (negative turns counterclockwise)."""
     plan = _get("/api/state").get("plan") or {}
     fixture = _lookup(plan, "fixtures", fixture_id)
     if fixture is None:
@@ -829,16 +905,86 @@ def merge_steps(
     return _summary(state)
 
 
+# ---------------------------------------------------------------- flags
+
+
+def _flag_view(plan: dict | None, flag: dict) -> dict:
+    out = {k: flag[k] for k in ("id", "note", "done", "by", "x", "y", "w", "h") if k in flag}
+    if not plan or "x" not in flag:
+        return out
+    target = flag.get("target")
+    if target:
+        obj = _lookup(plan, target[0], target[1])
+        out["placed_on"] = {"kind": target[0], "id": target[1], "what": describe(plan, target[0], obj) if obj else "(since deleted)"}
+    if "w" in flag:
+        box = [flag["x"], flag["y"], flag["x"] + flag["w"], flag["y"] + flag["h"]]
+        out["inside"] = search(plan, within=box, limit=12)
+    else:
+        out["near"] = search(plan, near=[flag["x"], flag["y"]], radius=18, limit=5)
+    return out
+
+
+@mcp.tool()
+def list_flags(include_done: bool = False) -> dict:
+    """The flags the user placed to point at things: id (F1, F2, ...), their note, where they are in
+    inches, the object they were dropped on, and what is under or near them now (closest first).
+    A flag with w/h marks a box; `inside` lists what it covers."""
+    state = _get("/api/state")
+    plan = state.get("plan")
+    flags = [f for f in state.get("flags") or [] if include_done or not f.get("done")]
+    return {"count": len(flags), "flags": [_flag_view(plan, f) for f in flags]}
+
+
+@mcp.tool()
+def add_flag(x: float, y: float, note: str = "", w: float | None = None, h: float | None = None) -> dict:
+    """Drop a flag at (x, y) inches to point something out to the user (w/h make it a box from x, y).
+    It shows as an orange numbered pin in their editor and in its flag list."""
+    body: dict[str, Any] = {"action": "add", "x": x, "y": y, "note": note, "by": "cursor"}
+    if w and h:
+        body.update(w=w, h=h)
+    state = _post("/api/flags", body)
+    flag_id = state.get("flag")
+    _ui({"action": "select", "key": f"flags:{flag_id}"})
+    _ui({"action": "message", "text": f"Cursor flagged {flag_id}: {note}" if note else f"Cursor flagged {flag_id}"})
+    flag = next(f for f in state["flags"] if f["id"] == flag_id)
+    return _flag_view(state.get("plan"), flag)
+
+
+@mcp.tool()
+def update_flag(flag_id: str, note: str | None = None, done: bool | None = None, x: float | None = None, y: float | None = None) -> dict:
+    """Change a flag's note, mark it done (handled) or not, or move it to (x, y) inches."""
+    body: dict[str, Any] = {"action": "update", "id": flag_id, "note": note, "done": done}
+    if x is not None and y is not None:
+        body.update(x=x, y=y)
+    state = _post("/api/flags", body)
+    flag = next(f for f in state["flags"] if f["id"] == state.get("flag"))
+    if done:
+        _ui({"action": "message", "text": f"Cursor: {flag['id']} done"})
+    return _flag_view(state.get("plan"), flag)
+
+
+@mcp.tool()
+def delete_flags(ids: list[str] | None = None, all_done: bool = False) -> dict:
+    """Remove flags by id, or every flag marked done."""
+    if all_done:
+        state = _post("/api/flags", {"action": "clear_done"})
+    elif ids:
+        state = _post("/api/flags", {"action": "delete", "ids": ids})
+    else:
+        raise ToolError("give ids or all_done=true")
+    return {"remaining": [f["id"] for f in state.get("flags") or []]}
+
+
 # ---------------------------------------------------------------- the browser
 
 
 @mcp.tool()
 def control_browser(
     action: Literal["open", "select", "zoom", "fit", "tool", "view", "message", "reload"],
-    kind: Kind | None = None,
+    kind: Literal["walls", "openings", "counters", "fixtures", "labels", "erase", "flags"] | None = None,
     id: str | int | None = None,
     region: list[float] | None = None,
-    tool: Literal["select", "wall", "door", "window", "counter", "polygon", "fixture", "label", "erase", "calibrate"]
+    tool: Literal["select", "wall", "door", "window", "counter", "polygon", "fixture", "label", "erase", "calibrate", "flag"]
     | None = None,
     sheet: bool | None = None,
     erase: bool | None = None,
@@ -850,8 +996,9 @@ def control_browser(
 ) -> dict:
     """Drive the open editor page.
 
-    open: open the editor in the default browser. select: select kind/id (or clear with no id).
-    zoom: zoom to kind/id, or to region [x0, y0, x1, y1] inches. fit: show the whole sheet.
+    open: open the editor in the default browser. select: select kind/id (or clear with no id);
+    kind 'flags' with id F3 selects a flag. zoom: zoom to kind/id, or to region [x0, y0, x1, y1]
+    inches. fit: show the whole sheet.
     tool: switch the active tool. view: toggle sheet, erase regions, snapping, the 1" grid, the
     side panel, or set the sheet opacity (0-1). message: show text in the status bar.
     reload: reload the page.

@@ -166,6 +166,18 @@ def trace_walls(
     return walls
 
 
+TYPICAL_WALL_INCHES = 4.5
+
+
+def estimate_px_per_inch(walls: list[dict], px_per_inch: float = 1.0) -> float | None:
+    """Guess the sheet scale from traced walls: most walls on a plan are 2x4 partitions, about 4.5" thick."""
+    thicknesses = sorted(float(w["thickness"]) * px_per_inch for w in walls)
+    if len(thicknesses) < 3:
+        return None
+    median = thicknesses[len(thicknesses) // 2]
+    return round(median / TYPICAL_WALL_INCHES, 6)
+
+
 def new_plan_from_image(
     image: Path | str,
     *,

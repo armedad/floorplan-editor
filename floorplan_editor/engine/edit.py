@@ -1,8 +1,9 @@
 """Edit operations on a plan. Pure: each takes a plan and returns a new plan.
 
 `apply(plan, op)` dispatches on `op["op"]` and returns `(new_plan, ref)`, where
-`ref` is `[collection, id]` of the object the edit touched (or None). The editor
-sends these operations as JSON; tests call them directly.
+`ref` is `[collection, id]` of the object the edit touched, a list of those for
+edits on several objects, or None. The editor sends these operations as JSON;
+tests call them directly.
 """
 
 from __future__ import annotations
@@ -235,6 +236,120 @@ def op_move(plan: dict, op: dict):
     return [kind, ref]
 
 
+def _items(op: dict) -> list[tuple[str, object]]:
+    items = op.get("items")
+    if not isinstance(items, list) or not items:
+        raise EditError(f"{op.get('op')} needs items: [[kind, id], ...]")
+    return [(str(kind), ref) for kind, ref in items]
+
+
+def op_move_group(plan: dict, op: dict):
+    """Move several objects by (dx, dy) together. Each wall end moves once, even where two moved walls meet."""
+    dx, dy = float(op["dx"]), float(op["dy"])
+    items = _items(op)
+    walls = {ref for kind, ref in items if kind == "walls"}
+    ends: list[tuple[dict, str]] = []
+    for ref in walls:
+        wall = find(plan, "walls", ref)
+        ends += [(wall, "start"), (wall, "end")]
+    if op.get("join", True):
+        inside = {(w["id"], e) for w, e in ends}
+        for wall, end in list(ends):
+            ex, ey = _get_end(wall, end)
+            ends += [(w, e) for w, e in _endpoints_at(plan, ex, ey, JOIN_TOL, inside) if (w["id"], e) not in inside]
+            inside |= {(w["id"], e) for w, e in ends}
+    seen = set()
+    for wall, end in ends:
+        if (wall["id"], end) in seen:
+            continue
+        seen.add((wall["id"], end))
+        ex, ey = _get_end(wall, end)
+        _set_end(wall, end, ex + dx, ey + dy)
+    for wall_id in {w["id"] for w, _ in ends}:
+        clamp_openings(plan, wall_id)
+    for kind, ref in items:
+        if kind == "walls":
+            continue
+        if kind == "openings" and find(plan, kind, ref)["wall"] in walls:
+            continue
+        op_move(plan, {"kind": kind, "id": ref, "dx": dx, "dy": dy, "join": False})
+    return [[kind, ref] for kind, ref in items]
+
+
+def op_delete_many(plan: dict, op: dict):
+    """Delete several objects. Doors and windows already removed with their wall are skipped."""
+    items = _items(op)
+    labels = sorted((int(ref) for kind, ref in items if kind == "labels"), reverse=True)
+    for kind, ref in items:
+        if kind == "labels":
+            continue
+        if kind == "openings" and not any(o.get("id") == ref for o in plan.get("openings", [])):
+            continue
+        op_delete(plan, {"kind": kind, "id": ref})
+    for index in labels:
+        op_delete(plan, {"kind": "labels", "id": index})
+    return None
+
+
+def op_duplicate(plan: dict, op: dict):
+    """Copy objects, shifted by (dx, dy). Copied walls bring their doors and windows along."""
+    dx, dy = float(op.get("dx", 12)), float(op.get("dy", 12))
+    items = _items(op)
+    walls = {ref for kind, ref in items if kind == "walls"}
+    refs = []
+    for kind, ref in items:
+        source = find(plan, kind, ref)
+        if kind == "openings" and source["wall"] in walls:
+            continue
+        copy_ = copy.deepcopy(source)
+        copy_.pop("id", None)
+        if kind == "openings":
+            copy_["offset"] = float(source["offset"]) + float(source["width"]) + 6
+        new_ref = op_add(plan, {"kind": kind, "obj": copy_})
+        refs.append(new_ref)
+        if kind == "openings":
+            clamp_openings(plan, source["wall"])
+            continue
+        op_move(plan, {"kind": kind, "id": new_ref[1], "dx": dx, "dy": dy, "join": False})
+        if kind == "walls":
+            for opening in [o for o in plan.get("openings", []) if o["wall"] == ref]:
+                twin = copy.deepcopy(opening)
+                twin.pop("id")
+                twin["wall"] = new_ref[1]
+                refs.append(op_add(plan, {"kind": "openings", "obj": twin}))
+    return refs
+
+
+def op_resize_wall(plan: dict, op: dict):
+    """Set a wall's length, keeping its start, center, or end in place. Joined wall ends follow."""
+    wall = find(plan, "walls", op["id"])
+    length = float(op["length"])
+    if length < 0.5:
+        raise EditError("a wall needs some length")
+    old = wall_length(wall) or 0
+    if not old:
+        raise EditError("the wall has no direction to grow along")
+    (x1, y1), (x2, y2) = _get_end(wall, "start"), _get_end(wall, "end")
+    ux, uy = (x2 - x1) / old, (y2 - y1) / old
+    anchor = op.get("anchor", "start")
+    if anchor == "start":
+        start, end = (x1, y1), (x1 + ux * length, y1 + uy * length)
+    elif anchor == "end":
+        start, end = (x2 - ux * length, y2 - uy * length), (x2, y2)
+    elif anchor == "center":
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        start = (cx - ux * length / 2, cy - uy * length / 2)
+        end = (cx + ux * length / 2, cy + uy * length / 2)
+    else:
+        raise EditError("anchor must be start, center, or end")
+    join = op.get("join", True)
+    if anchor != "start":
+        op_move_wall_end(plan, {"id": wall["id"], "end": "start", "x": start[0], "y": start[1], "join": join})
+    if anchor != "end":
+        op_move_wall_end(plan, {"id": wall["id"], "end": "end", "x": end[0], "y": end[1], "join": join})
+    return ["walls", wall["id"]]
+
+
 def op_move_wall_end(plan: dict, op: dict):
     wall = find(plan, "walls", op["id"])
     end = op["end"]
@@ -418,6 +533,10 @@ OPS = {
     "update": op_update,
     "delete": op_delete,
     "move": op_move,
+    "move_group": op_move_group,
+    "delete_many": op_delete_many,
+    "duplicate": op_duplicate,
+    "resize_wall": op_resize_wall,
     "move_wall_end": op_move_wall_end,
     "split_wall": op_split_wall,
     "move_vertex": op_move_vertex,

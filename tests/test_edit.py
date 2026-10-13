@@ -153,3 +153,44 @@ def test_batch_is_one_edit(sample):
 def test_unknown_op(sample):
     with pytest.raises(EditError):
         apply(sample, {"op": "explode"})
+
+
+def test_resize_wall_keeps_the_anchor_and_drags_joined_ends(sample):
+    plan, ref = apply(sample, {"op": "resize_wall", "id": "bath-s", "length": 80, "anchor": "end"})
+    assert ref == ["walls", "bath-s"]
+    assert (wall(plan, "bath-s")["x1"], wall(plan, "bath-s")["x2"]) == (320, 400)
+    assert wall(plan, "bath-w")["x2"] == 320 and wall(plan, "bed-n")["x2"] == 320
+    plan, _ = apply(sample, {"op": "resize_wall", "id": "bed-n", "length": 72, "anchor": "center"})
+    assert (wall(plan, "bed-n")["x1"], wall(plan, "bed-n")["x2"]) == (234, 306)
+    assert wall(plan, "bed-w")["x1"] == 234 and wall(plan, "bath-s")["x1"] == 306
+    with pytest.raises(EditError):
+        apply(sample, {"op": "resize_wall", "id": "bed-n", "length": 10, "anchor": "middle"})
+
+
+def test_move_group_moves_shared_corners_once(sample):
+    items = [["walls", "bath-w"], ["walls", "bath-s"], ["fixtures", "toilet"]]
+    plan, refs = apply(sample, {"op": "move_group", "items": items, "dx": 0, "dy": 10})
+    assert refs == items
+    assert (wall(plan, "bath-w")["y1"], wall(plan, "bath-w")["y2"]) == (10, 120)
+    assert wall(plan, "bath-s")["y1"] == 120 and wall(plan, "bed-n")["y2"] == 120
+    assert next(f for f in plan["fixtures"] if f["id"] == "toilet")["y"] == 30
+    assert validate_plan(plan) == []
+
+
+def test_delete_many_skips_openings_gone_with_their_wall(sample):
+    items = [["walls", "bath-s"], ["openings", "bath-door"], ["labels", 0], ["labels", 2]]
+    plan, _ = apply(sample, {"op": "delete_many", "items": items})
+    assert "bath-s" not in {w["id"] for w in plan["walls"]}
+    assert "bath-door" not in {o["id"] for o in plan["openings"]}
+    assert [label["text"] for label in plan["labels"]] == ["LIVING", "BATH"]
+
+
+def test_duplicate_copies_walls_with_their_openings(sample):
+    plan, refs = apply(sample, {"op": "duplicate", "items": [["walls", "bath-s"], ["fixtures", "toilet"]], "dx": 0, "dy": 40})
+    kinds = [kind for kind, _ in refs]
+    assert kinds == ["walls", "openings", "fixtures"]
+    copy_wall = wall(plan, refs[0][1])
+    assert (copy_wall["y1"], copy_wall["y2"]) == (150, 150)
+    door = next(o for o in plan["openings"] if o["id"] == refs[1][1])
+    assert door["wall"] == copy_wall["id"] and door["offset"] == 20
+    assert validate_plan(plan) == []

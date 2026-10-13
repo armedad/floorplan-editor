@@ -58,19 +58,37 @@ only create the venv once; after that, the last line is all you need to start th
 
 ## Run the editor
 
-Point `floorplan serve` at a plan folder:
-
 ```powershell
-floorplan serve C:\Users\CheeC\code\riverside-39c
+floorplan serve
 ```
 
-It starts a server on http://127.0.0.1:8765 and opens your browser. Options:
+It starts a server on http://127.0.0.1:8765 and opens your browser. You can also give it a
+folder to start in (`floorplan serve C:\Users\CheeC\code\riverside-39c`). Options:
 
 - `--sheet PATH` picks the source image when the folder has more than one.
 - `--port N` uses another port.
 - `--no-browser` starts the server without opening a tab.
 
 To try it without a plan of your own, run `floorplan serve examples/sample`.
+
+### Opening things
+
+There is one **Open…** button (Ctrl+O), and you can also drop files anywhere on the window.
+Pick whatever you have, and the editor works out what it is:
+
+- **A plan `.json`** opens in its folder, along with that folder's other steps and sheet.
+- **A folder** opens its newest step, or `plan.json` if there are no steps.
+- **A floor plan image** (`.png` or `.jpg`) becomes a project. The editor copies it into a
+  new folder under `~/floorplans` and traces the walls. It also guesses the scale from how
+  thick the walls are (most interior walls are about 4½″). Check the scale against a printed
+  dimension with **Scale (K)**, which blinks for you after a new trace.
+- **The same image again** reopens the project already made from it, instead of making a
+  second copy. The same goes for an image whose folder already has plans next to it.
+- **A plan and an image dropped together** become a project of their own.
+
+The arrow next to Open lists recent folders and other ways to open: a folder, a typed
+path, or the browser's own file picker when the system dialog can't appear. Set
+`FLOORPLAN_WORKSPACE` to put new projects somewhere other than `~/floorplans`.
 
 ### What goes in a plan folder
 
@@ -90,44 +108,105 @@ Closing the server does.
 ## Tour
 
 The toolbar runs across the top, the drawing fills the middle, and the side panel is on
-the right. **Panel** (or `\`) hides the side panel to give the drawing more room. The status
-bar along the bottom shows a hint for the current tool, the cursor position in feet and
-inches, what the cursor snapped to, the zoom, and the open file (a dot means unsaved).
+the right, in folding sections: the selection's properties, flags, the folder and its
+steps, view settings, and auto-trace. `\` (or the ◧ button) hides the panel. A hint along
+the bottom of the drawing says what the current tool expects next, and the status bar
+shows the cursor position in feet and inches, what the cursor snapped to, the zoom, and
+the open file (a dot means unsaved).
+
+Every action is reachable more than one way, and each shows its shortcut wherever it
+appears:
+
+- **The action bar** floats next to whatever is selected, with the things you can do to
+  it: type its size, move it by an exact distance, flip a door, split a wall, duplicate,
+  flag, delete.
+- **Right-click** the drawing for the same actions, plus "drop a flag here" and "paste
+  here".
+- **Commands (Ctrl+K)** lists every command with its shortcut. Type a few letters to find
+  one ("del", "scale", "flag").
+
+### Selecting
+
+- Click an object to select it. Shift+click (or Ctrl+click) adds or removes one.
+- Drag across empty space to select an area. Dragging left to right selects what is fully
+  inside the box (blue). Dragging right to left selects anything the box touches (green,
+  dashed). Hold Shift to add to the selection.
+- Ctrl+A selects everything. Esc clears the selection.
+- Drag any selected object to move them all. Wall ends that meet another wall move
+  together; hold Alt to pull one free. Shift locks a move to one axis.
+- Space+drag or middle-drag pans. The mouse wheel zooms.
+
+### Exact sizes and positions
+
+Select something and its measurements appear on the drawing, the way a CAD program shows
+driving dimensions. Click any measurement, type the value, and press Enter:
+
+- **Walls** show their length and the clear distance to the nearest parallel wall on each
+  side. Typing a clear distance moves the wall.
+- **Doors and windows** show their width and the distance from each corner of their wall.
+- **Counters, fixtures, and erase regions** show width and depth, plus the clear distance to
+  the wall on each side. **Outlines** show every edge.
+
+When a size changes, something has to stay put. The box offers the choices by name ("left
+end", "middle", "right end") and remembers your pick for the next time. The same fields,
+with the same choices, are in the side panel.
+
+Anywhere a length is asked for, type it the way you'd say it: `126`, `10'6"`, `10'-6"`,
+`10 ft 6 in`, `6 1/2"`, `320cm`, or arithmetic such as `10' - 4.5` or `(30 + 2) * 2`.
+Plain numbers are inches. In the side panel, the arrow keys nudge a field by 1″ (Shift 1',
+Alt ¼″), and dragging a field's label sideways scrubs the value.
+
+**Move… (M)** moves the selection by an exact amount: `6, -18` is 6″ right and 18″ up, and
+`3'<90` is 3' at 90° (straight up). The arrow keys nudge the selection 1″ (Shift 12″, Alt ¼″).
+**Duplicate (Ctrl+D)** copies the selection 1' over, and **Copy/Paste (Ctrl+C, Ctrl+V)**
+pastes at the pointer.
 
 ### Tools
 
-- **Select (V).** Click an object to select it and see its fields in the side panel. Drag
-  to move it. Drag a handle to reshape it.
-  - Wall ends that meet another wall move together. Hold Alt to pull one free.
-  - Shift locks a move to one axis.
-  - Double-click a wall to split it in two.
-  - Drag a counter outline's corner to move it. Drag the dot in the middle of an edge to add
-    a corner there.
-  - Drag empty space to pan. The mouse wheel zooms.
-- **Wall (W).** Click each corner. Shift keeps a segment straight. Double-click,
-  right-click, Enter, or Esc stops.
-- **Door (D)** and **Window (N).** Click on a wall to drop one there. Drag it along the wall
-  to move it, and drag its end dots to change the width. With a door selected, F flips the
-  swing and H flips the hinge side.
-- **Counter (C).** Drag a rectangle, or click two opposite corners, for a box counter.
-- **Outline (P).** Click each corner of a counter of any shape, such as an L. Double-click
-  or Enter closes it. Backspace removes the last corner.
+- **Select (V).** Select, move, and reshape. Drag a handle to reshape: wall ends, door
+  edges, counter corners, a fixture's corner (size) or its yellow dot (rotation). Drag the
+  dot in the middle of an outline's edge to add a corner; Alt+click a corner to remove it.
+  Double-click a wall to split it there.
+- **Wall (W).** Click each corner. After the first click you can type instead of clicking:
+  a length goes toward the pointer (`10'6"`), a length and angle goes that way (`8'<90`,
+  degrees counterclockwise from right), and `48, -12` goes right and up by those amounts.
+  Shift keeps a segment straight. Double-click, Enter, or Esc stops.
+- **Door (D)** and **Window (N).** Click on a wall to drop one there. Type a number first
+  to change the width. With a door selected, S flips the swing and H flips the hinge side.
+- **Counter (C).** Drag a rectangle, or click one corner and type `width, depth` (`25, 60`).
+- **Outline (P).** Click each corner of a counter of any shape, such as an L, or type the
+  edges like walls. Double-click or Enter closes it. Backspace removes the last corner.
 - **Fixture (X).** Pick a type and a rotation in the toolbar, then click to place it. The
-  click point becomes the fixture's `x`, `y` corner, which it rotates around. Types are refrigerator,
+  click point is the fixture's center, which it rotates around. Types are refrigerator,
   range, oven, dishwasher, toilet, tub, soaking tub, sink, washer, dryer, washer/dryer,
-  stool, and generic. Press R to rotate the next placement, or R on a selected fixture to
-  turn it 90°.
-- **Label (T).** Type the text in the toolbar box, then click where it goes. The text stays
-  in the box, so you can drop the same label several times.
-- **Erase (E).** Drag a rectangle, or click two corners, over printed ink on the sheet.
-  The region whites out that ink in the editor and in every saved overlay. It's stored in
-  the plan, so it can be moved, resized, or deleted later.
-- **Scale (K).** Click two points a known distance apart, then type the real length, such
-  as `26'5"`. This sets how many sheet pixels make an inch.
+  stool, and generic. R turns the next placement, or a selected fixture, 90°.
+- **Label (T).** Click where the label goes and type it. Text typed in the toolbar box is
+  reused for every click, for dropping the same label several times.
+- **Erase (E).** Drag a rectangle over printed ink on the sheet. The region whites out that
+  ink in the editor and in every saved overlay. It's stored in the plan, so it can be
+  moved, resized, or deleted later.
+- **Scale (K).** Click both ends of a length printed on the sheet, then type that length,
+  such as `26'5"`. This sets how many sheet pixels make an inch.
+- **Flag (F).** Drop a numbered flag; see the next section.
 
 Snapping is on by default. Points snap to wall ends and wall faces, then to a 1-inch grid.
 Both can be turned off under **View** in the side panel, which also controls the sheet
-image, its opacity, and whether erase regions are shown.
+image, its opacity, the measurements on the selection, and whether erase regions are shown.
+
+### Flags: pointing Cursor at things
+
+A flag is a numbered pin. Press **F** and click a spot to drop one, or drag to flag an area.
+Shift+F flags whatever is selected. Type a note if you like ("make this toilet 2 inches
+narrower"); then in Cursor, say "look at F3" instead of describing where things are.
+
+Cursor reads each flag's note, where it is, and what it sits on (`list_flags`), can crop a
+picture around it (`view_image` with `flag`), and can drop its own flags to show you what it
+means. Flags stay with the folder, in `flags.json`. They aren't part of any plan, so they
+survive saving steps and merging, and never appear in saved drawings.
+
+The **Flags** section of the side panel lists them. Click a number to zoom to it, ✓ to mark
+it done, ⧉ to copy a one-line reference to paste into a chat, and × to remove it. **Copy
+open flags for Cursor** copies them all at once. Drag a pin to move it.
 
 ### Steps and merging
 
@@ -149,13 +228,14 @@ steps, so nothing is silently overwritten. **Save** overwrites the open file,
 
 ### Starting a new plan from an image
 
-Under **New plan from a sheet image** in the side panel, choose the image, say which
-compass direction is up on the sheet, give a pixels-per-inch value if you know it, and
-name the file. The editor copies the image into the folder as `sheet.png` (or `.jpg`) and
-starts an empty plan the size of the image. Fix the scale with the Scale tool if you guessed.
+Usually you just open or drop the image (see [Opening things](#opening-things)): it is
+copied into a project folder, traced, and scaled for you. To control the details, use
+**New plan (manual setup)…** under **Folder and steps**: choose the image, say which compass
+direction is up on the sheet, give a pixels-per-inch value if you know it (leave it empty to
+guess from the walls), and choose whether to trace.
 
-**Auto-trace walls** then finds the long, dark, solid bars on the sheet and offers them as
-walls:
+**Auto-trace walls** in the side panel re-runs the tracer with your own settings. It finds
+the long, dark, solid bars on the sheet and offers them as walls:
 
 1. Click **Preview** to see what it found, drawn over the sheet.
 2. Adjust the sliders and preview again:
@@ -163,7 +243,7 @@ walls:
    - **Thinnest wall** and **Thickest wall** set the bar thickness range, in pixels. Raise
      the thinnest to skip window and cabinet lines. Lower it to pick up thin partitions.
    - **Shortest wall** drops short bars, in pixels.
-3. Click **Apply** to add the walls. **Replace existing walls** clears the old ones first.
+3. Click **Add them** to add the walls. **Replace existing walls** clears the old ones first.
 4. Clean up by hand. Expect to delete stray bars around text and fixtures, join corners,
    and add the thin walls the tracer skipped.
 
@@ -173,22 +253,33 @@ wall to 1 px found 488 walls and covered 93%, but needed much more cleanup.
 
 ## Keyboard shortcuts
 
+Ctrl+K shows all of these, searchable.
+
 | Key | Action |
 | --- | --- |
-| V, W, D, N, C, P, X, T, E, K | Select, Wall, Door, Window, Counter, Outline, Fixture, Label, Erase, Scale |
-| Delete or Backspace | Delete the selection |
+| V, W, D, N, C, P, X, T, E, K, F | Select, Wall, Door, Window, Counter, Outline, Fixture, Label, Erase, Scale, Flag |
+| Ctrl+O | Open a plan, folder, or image |
+| Ctrl+S, Ctrl+Shift+S | Save, save as the next step |
 | Ctrl+Z, Ctrl+Y (or Ctrl+Shift+Z) | Undo, redo |
-| Ctrl+S | Save |
-| Esc | Cancel the drawing in progress; press again to go back to Select, then again to clear the selection |
+| Ctrl+A | Select everything |
+| Delete or Backspace | Delete the selection |
+| Ctrl+D | Duplicate the selection |
+| Ctrl+C, Ctrl+V | Copy, paste at the pointer |
+| Enter | Type the selection's size (or a flag's note); finish an outline or a run of walls |
+| M | Move the selection by an exact distance |
 | Arrow keys | Nudge the selection 1″ (Shift: 12″, Alt: ¼″) |
-| Enter | Finish an outline or a run of walls |
+| Digits while drawing | Type the next wall length, a counter's size, or a door's width |
 | R | Rotate the selected fixture 90° (Shift+R the other way), or the next fixture to place |
-| F, H | Flip the selected door's swing or hinge side |
+| S, H | Flip the selected door's swing or hinge side |
+| Shift+F | Flag the selection |
+| Esc | Cancel the drawing in progress; press again to go back to Select, then again to clear the selection |
 | Z | Zoom to the selection |
 | 0 | Fit the whole sheet in view |
 | + and - | Zoom in and out |
-| Space + drag | Pan with any tool |
+| Space + drag, middle-drag | Pan with any tool |
+| Shift+D | Show or hide measurements on the selection |
 | \ | Show or hide the side panel |
+| Ctrl+K or ? | Every command, searchable |
 
 ## Plan file format
 
@@ -236,8 +327,8 @@ is unique across the whole plan.
   swing `cw` or `ccw`. Openings must fit on the wall and not overlap each other.
 - **counters** are either a box (`x`, `y`, `w`, `h`, with an optional overhang on one
   compass edge) or an outline of at least three `points`.
-- **fixtures** are boxes with a `type` and an optional rotation `rot` in degrees, turned
-  clockwise on screen about the `x`, `y` corner.
+- **fixtures** are boxes centered on `x`, `y`, with a `type` and an optional rotation `rot`
+  in degrees, turned clockwise on screen about that center.
 - **labels** are text centered at `x`, `y`. `size_px` is the font size on the sheet.
 - **erase** regions are boxes that white out the sheet under them in the editor and in
   overlays.
@@ -267,13 +358,15 @@ With your own venv, point `command` at that venv's Python. To use a port other t
 8765, add `"env": { "FLOORPLAN_URL": "http://127.0.0.1:9000" }`.
 
 Then ask Cursor things like "open the editor on C:\plans\39C, delete the tub's front
-wall, put a toilet there facing east, and save it as a step." The tools:
+wall, put a toilet there facing east, and save it as a step," or drop flags in the
+browser and say "do what F1 and F2 say." The tools:
 
 | Area | Tools |
 | --- | --- |
 | Editor | `editor_status`, `start_editor` (starts `floorplan serve` in the background if needed, or switches folders), `stop_editor` |
-| Files and images | `open_plan` (a name in the folder, or any plan JSON on disk), `import_file` (copy a plan or a sheet image into the folder), `new_plan_from_image` (with optional auto-trace) |
-| Looking | `view_image` (overlay, sheet, plan alone, or any PNG in the folder, cropped to a region in inches), `get_plan`, `find_objects` (by position, region, type, or text) |
+| Files and images | `open_anything` (a plan, folder, or image, recognized the same way as the browser's Open), `open_plan` (a name in the folder, or any plan JSON on disk), `import_file` (copy a plan or a sheet image into the folder), `new_plan_from_image` (with optional auto-trace) |
+| Flags | `list_flags` (each flag's note, place, and what it sits on or near), `add_flag`, `update_flag` (note, done, position), `delete_flags` |
+| Looking | `view_image` (overlay, sheet, plan alone, or any PNG in the folder, cropped to a region in inches or around a flag, with flags drawn on), `get_plan`, `find_objects` (by position, region, type, or text) |
 | Editing | `add_object`, `update_object`, `delete_objects`, `move_object`, `move_wall_end`, `split_wall`, `edit_counter_outline`, `flip_door`, `rotate_fixture`, `set_plan_properties` (name, notes, compass, scale), `trace_walls`, and `apply_ops` for any batch of edit operations as one undo step |
 | History and saving | `undo`, `redo`, `revert`, `save` (overwrite, next step, or a new name), `merge_steps` |
 | The page | `control_browser`: open the page, select, zoom to an object or region, fit, switch tools, toggle the sheet, erase regions, snapping, grid, and side panel, or show a message |
@@ -317,7 +410,12 @@ C:\Users\CheeC\code\.venv\Scripts\python.exe -m pytest
   UI commands to open browsers.
 - The MCP server is `floorplan_editor/mcp_server.py`.
 - The browser editor is plain JavaScript modules in `floorplan_editor/web`, with no build
-  step.
+  step. `app.js` holds the state, drawing, and pointer handling; `commands.js` is the one
+  list of commands behind the shortcuts, the action bar, the right-click menu, and Ctrl+K;
+  `panels.js` builds the side panel; `measure.js` works out the measurements shown on a
+  selection; `open.js` handles Open and dropped files; `flags.js` draws and lists flags.
+- `geom.js` and `measure.js` have their own tests under `tests/web`, which pytest runs
+  through Node when it is installed.
 
 ## License
 
