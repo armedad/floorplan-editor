@@ -40,15 +40,22 @@ def _ink_rows(image: Image.Image, dark: int) -> tuple[int, int, list[bytes]]:
 OVERLAP = 0.8
 
 
-def _bars(rows: list[bytes], settings: TraceSettings) -> list[tuple[float, float, int, int]]:
-    """Horizontal bars as (x0, x1, y0, y1), y1 exclusive.
+BLOCK_LIMIT = 4
+
+
+def _bars(rows: list[bytes], settings: TraceSettings) -> list[tuple[float, float, int, int, bool]]:
+    """Horizontal bars as (x0, x1, y0, y1, is_block), y1 exclusive.
 
     A run continues a bar when it covers most of the bar's first row. Runs that reach
     past the bar (a perpendicular wall at a corner, window lines in a gap) are clipped
     to it, and the bar's ends come from the inner quartiles of its rows.
+
+    A solid block thicker than the thickest wall (a structural column) is kept as a
+    block, up to BLOCK_LIMIT times the thickest wall on each side.
     """
     pattern = re.compile(rb"\xff{%d,}" % max(1, settings.min_length_px))
     tol = settings.tolerance_px
+    tmax = settings.max_thickness_px
     active: list[dict] = []
     bars = []
 
@@ -56,11 +63,14 @@ def _bars(rows: list[bytes], settings: TraceSettings) -> list[tuple[float, float
         n = len(bar["starts"])
         x0 = sorted(bar["starts"])[int(0.75 * (n - 1))]
         x1 = sorted(bar["ends"])[int(0.25 * (n - 1))]
-        if not settings.min_thickness_px <= n <= settings.max_thickness_px:
+        length = x1 - x0
+        if n > tmax:
+            if n <= BLOCK_LIMIT * tmax and settings.min_length_px <= length <= BLOCK_LIMIT * tmax:
+                bars.append((x0, x1, bar["y0"], bar["y0"] + n, True))
             return
-        if x1 - x0 < max(settings.min_length_px, 2 * n):
+        if n < settings.min_thickness_px or length < max(settings.min_length_px, 2 * n):
             return
-        bars.append((x0, x1, bar["y0"], bar["y0"] + n))
+        bars.append((x0, x1, bar["y0"], bar["y0"] + n, False))
 
     for y, row in enumerate(rows):
         next_active = []
@@ -111,10 +121,15 @@ def _dedupe(bars: list[tuple]) -> list[tuple]:
 
 def trace_bars(image: Image.Image, settings: TraceSettings) -> list[tuple[str, float, float, float, float]]:
     """Wall bars in pixels: (axis, x0, y0, x1, y1) with axis 'h' or 'v'."""
+    def axis(default: str, block: bool, width: float, height: float) -> str:
+        if not block:
+            return default
+        return "h" if width >= height else "v"
+
     _, _, rows = _ink_rows(image, settings.dark)
-    found = [("h", x0, y0, x1, y1) for x0, x1, y0, y1 in _bars(rows, settings)]
+    found = [(axis("h", b, x1 - x0, y1 - y0), x0, y0, x1, y1) for x0, x1, y0, y1, b in _bars(rows, settings)]
     _, _, cols = _ink_rows(image.transpose(Image.Transpose.TRANSPOSE), settings.dark)
-    found += [("v", y0, x0, y1, x1) for x0, x1, y0, y1 in _bars(cols, settings)]
+    found += [(axis("v", b, y1 - y0, x1 - x0), y0, x0, y1, x1) for x0, x1, y0, y1, b in _bars(cols, settings)]
     found = _dedupe(found)
     found.sort(key=lambda bar: (bar[2], bar[1]))
     return found

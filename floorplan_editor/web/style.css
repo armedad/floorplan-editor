@@ -115,6 +115,12 @@ main {
   min-height: 0;
   min-width: 0;
 }
+body.side-hidden main {
+  grid-template-columns: minmax(0, 1fr) 0;
+}
+body.side-hidden #side {
+  display: none;
+}
 #stage {
   position: relative;
   overflow: hidden;

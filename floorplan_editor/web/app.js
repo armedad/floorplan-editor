@@ -1078,6 +1078,7 @@ window.addEventListener("keydown", async (e) => {
   }
   if (lower === "f" && app.sel) return flipDoor("swing");
   if (lower === "h" && app.sel) return flipDoor("hinge");
+  if (key === "\\") return toggleSide();
   if (key === "0") return fitView();
   if (key === "+" || key === "=") return zoomBy(1.25);
   if (key === "-") return zoomBy(0.8);
@@ -1097,7 +1098,13 @@ window.addEventListener("beforeunload", (e) => {
 
 window.addEventListener("resize", () => applyView());
 
+function toggleSide() {
+  document.body.classList.toggle("side-hidden");
+  applyView();
+}
+
 for (const b of document.querySelectorAll("#tools button")) b.addEventListener("click", () => setTool(b.dataset.tool));
+$("toggle-side").addEventListener("click", toggleSide);
 $("undo").addEventListener("click", () => call("/api/undo", {}, { selectRef: false }));
 $("redo").addEventListener("click", () => call("/api/redo", {}, { selectRef: false }));
 $("save").addEventListener("click", () => save("overwrite"));

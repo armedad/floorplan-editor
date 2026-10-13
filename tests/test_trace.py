@@ -39,7 +39,16 @@ def test_traced_thickness_is_close(sample, sample_folder):
     canvas = Canvas(sample)
     traced = trace_walls(sample_folder / "sheet.png", px_per_inch=canvas.scale, origin=canvas.origin)
     thicknesses = sorted({round(w["thickness"]) for w in traced})
-    assert set(thicknesses) <= {4, 5, 6, 7}
+    assert set(thicknesses) <= {4, 5, 6, 7, 12, 13}
+
+
+def test_solid_column_becomes_a_block_wall(sample, sample_folder):
+    canvas = Canvas(sample)
+    traced = trace_walls(sample_folder / "sheet.png", px_per_inch=canvas.scale, origin=canvas.origin)
+    blocks = [w for w in traced if w["thickness"] >= 12]
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert abs((block["x1"] + block["x2"]) / 2 - 160) <= 1 and abs((block["y1"] + block["y2"]) / 2 - 126) <= 1
 
 
 def test_sensitivity_settings(sample_folder):
