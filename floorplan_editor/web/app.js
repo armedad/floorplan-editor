@@ -52,11 +52,11 @@ const TOOL_HINTS = {
   wall: "Click each corner of the wall. Shift keeps it straight. Double-click, right-click, or Esc to stop.",
   door: "Click on a wall to drop a door there.",
   window: "Click on a wall to drop a window there.",
-  counter: "Drag a rectangle for a box counter.",
+  counter: "Drag a rectangle (or click two corners) for a box counter.",
   polygon: "Click each corner of the counter outline. Double-click or Enter closes it; Backspace removes the last corner.",
   fixture: "Pick a fixture type, then click to place it. R rotates it 90°.",
-  label: "Click where the label goes.",
-  erase: "Drag a rectangle over printed ink to white it out on the sheet.",
+  label: "Type the text in the toolbar, then click where the label goes.",
+  erase: "Drag a rectangle (or click two corners) over printed ink to white it out on the sheet.",
   calibrate: "Click two points a known distance apart (Shift keeps it straight), then type the real length, e.g. 26'5\".",
 };
 
@@ -69,7 +69,7 @@ export const app = {
   tool: "select",
   view: { x: 20, y: 20, z: 1 },
   show: { sheet: true, opacity: 0.55, erase: true, snap: true, grid: true },
-  opts: { thickness: 4, doorWidth: 30, windowWidth: 36, fixtureType: "refrigerator", fixtureRot: 0 },
+  opts: { thickness: 4, doorWidth: 30, windowWidth: 36, fixtureType: "refrigerator", fixtureRot: 0, labelText: "" },
   drag: null,
   draft: null,
   cursor: null,
@@ -153,11 +153,18 @@ export function splitKey(key) {
 
 export function select(key) {
   app.sel = key;
-  for (const g of planLayer.querySelectorAll(".obj.selected")) g.classList.remove("selected");
-  for (const r of eraseLayer.querySelectorAll(".selected")) r.classList.remove("selected");
+  for (const el of document.querySelectorAll("#plan-layer .selected, #erase-layer .selected")) {
+    el.classList.remove("selected");
+    el.removeAttribute("role");
+    el.removeAttribute("aria-label");
+  }
   if (key) {
     const el = document.querySelector(`[data-key="${CSS.escape(key)}"]`);
-    if (el) el.classList.add("selected");
+    if (el) {
+      el.classList.add("selected");
+      el.setAttribute("role", "button");
+      el.setAttribute("aria-label", `selected ${key}`);
+    }
   }
   renderUI();
   renderProps(app);
@@ -256,7 +263,7 @@ function renderSheet() {
 function renderPlan() {
   const parts = [];
   for (const entry of app.objects.values()) {
-    const sel = entry.key === app.sel ? " selected" : "";
+    const sel = entry.key === app.sel ? ` selected" role="button" aria-label="selected ${esc(entry.key)}` : "";
     parts.push(`<g class="obj${sel}" data-key="${esc(entry.key)}">${entry.ops.map(opMarkup).join("")}</g>`);
   }
   planLayer.innerHTML = parts.join("");
@@ -269,7 +276,7 @@ function renderErase() {
   }
   eraseLayer.innerHTML = eraseEntries()
     .map(({ key, box: [x0, y0, x1, y1] }) => {
-      const sel = key === app.sel ? " selected" : "";
+      const sel = key === app.sel ? ` selected" role="button" aria-label="selected ${esc(key)}` : "";
       return `<rect class="erase-rect${sel}" data-key="${esc(key)}" x="${f2(x0)}" y="${f2(y0)}" width="${f2(x1 - x0)}" height="${f2(y1 - y0)}" vector-effect="non-scaling-stroke"/>`;
     })
     .join("");
@@ -305,7 +312,7 @@ export function renderAll() {
   updateToolbar();
 }
 
-function applyView() {
+export function applyView() {
   const v = app.view;
   world.setAttribute("transform", `translate(${v.x} ${v.y}) scale(${v.z})`);
   $("status-zoom").textContent = `${Math.round(v.z * 100)}%`;
@@ -400,7 +407,10 @@ export function renderUI() {
   app.handles = app.tool === "select" && app.sel && !(d && d.type === "move") ? handlesFor(app.sel) : [];
   app.handles.forEach((h, i) => {
     const [x, y] = h.at;
-    parts.push(`<circle class="handle ${h.cls || ""}" data-h="${i}" cx="${f2(x)}" cy="${f2(y)}" r="${r}" stroke-width="${sw}"/>`);
+    const name = esc(`${h.type} ${h.end || h.which || (h.index ?? h.corner ?? "")} handle`.replace(/\s+/g, " "));
+    parts.push(
+      `<circle class="handle ${h.cls || ""}" data-h="${i}" role="button" aria-label="${name}" cx="${f2(x)}" cy="${f2(y)}" r="${r}" stroke-width="${sw}"/>`,
+    );
   });
   const snap = (d && d.snap) || (app.cursor && app.cursor.snap);
   if (snap && (snap.kind === "endpoint" || snap.kind === "wall")) {
@@ -544,8 +554,14 @@ function renderToolOptions() {
       `<label>Rotation <select data-opt="fixtureRot">${[0, 90, 180, 270]
         .map((r) => `<option ${r === o.fixtureRot ? "selected" : ""}>${r}</option>`)
         .join("")}</select></label>`;
+  } else if (app.tool === "label") {
+    box.innerHTML = `<label>Text <input data-opt="labelText" value="${esc(o.labelText).replace(/"/g, "&quot;")}" placeholder="e.g. PAN"/></label>`;
   } else box.innerHTML = "";
   for (const el of box.querySelectorAll("[data-opt]")) {
+    if (el.dataset.opt === "labelText") {
+      el.addEventListener("input", () => (o.labelText = el.value));
+      continue;
+    }
     el.addEventListener("change", () => {
       const key = el.dataset.opt;
       if (key === "fixtureType") o[key] = el.value;
@@ -610,7 +626,14 @@ async function toolDown(e) {
   }
   if (tool === "counter" || tool === "erase") {
     const p = snapped(e);
-    app.drag = { type: "rect", kind: tool === "counter" ? "counters" : "erase", start: [p.x, p.y], cur: [p.x, p.y] };
+    const kind = tool === "counter" ? "counters" : "erase";
+    if (app.draft && app.draft.type === "rect") {
+      app.drag = { type: "rect", kind, start: app.draft.start, cur: [p.x, p.y] };
+      app.draft = null;
+      await rectUp();
+      return;
+    }
+    app.drag = { type: "rect", kind, start: [p.x, p.y], cur: [p.x, p.y] };
     return;
   }
   if (tool === "polygon") {
@@ -631,7 +654,7 @@ async function toolDown(e) {
   }
   if (tool === "label") {
     const p = snapped(e);
-    const text = prompt("Label text");
+    const text = app.opts.labelText.trim() || prompt("Label text");
     if (text && text.trim()) {
       await send({ op: "add", kind: "labels", obj: { text: text.trim(), x: p.x, y: p.y } });
       setTool("select");
@@ -678,6 +701,8 @@ function toolHover(e) {
     app.cursor.snap = p.snap;
     if (tool === "polygon" && d && d.pts.length) {
       app.hoverGhost = polyGhost([...d.pts, [p.x, p.y]], false) + lineGhost(anchor, [p.x, p.y], 0, formatLength(Math.hypot(p.x - anchor[0], p.y - anchor[1])));
+    } else if (d && d.type === "rect") {
+      app.hoverGhost = rectGhost(d.start, [p.x, p.y]);
     }
   } else if (tool === "door" || tool === "window") {
     const [x, y] = app.cursor.in;
@@ -710,7 +735,7 @@ function toolHover(e) {
 
 function startHandleDrag(e, h) {
   const [kind, id] = splitKey(app.sel);
-  app.drag = { type: "handle", h, kind, id, obj: structuredClone(getObject(app.sel)), alt: e.altKey, moved: false };
+  app.drag = { type: "handle", h, kind, id, obj: structuredClone(getObject(app.sel)), alt: e.altKey, moved: false, sx: e.clientX, sy: e.clientY };
 }
 
 function handleMove(e) {
@@ -838,6 +863,8 @@ async function rectUp() {
   const w = Math.abs(b[0] - a[0]);
   const h = Math.abs(b[1] - a[1]);
   if (w < 0.5 || h < 0.5) {
+    app.draft = { type: "rect", kind: d.kind, start: a, pts: [a] };
+    message("Now click the opposite corner (or drag next time).");
     renderUI();
     return;
   }
@@ -888,11 +915,15 @@ window.addEventListener("pointermove", (e) => {
   const inch = app.canvas.toIn(wx, wy);
   app.cursor = { world: [wx, wy], in: inch, snap: null };
   $("status-cursor").textContent = `x ${formatLength(inch[0])}  y ${formatLength(inch[1])}`;
-  const d = app.drag;
-  if (!d) {
+  if (!app.drag) {
     if (e.target === svg || svg.contains(e.target)) toolHover(e);
     return;
   }
+  dragTo(e);
+});
+
+function dragTo(e) {
+  const d = app.drag;
   if (d.type === "pan") {
     app.view.x = d.vx + e.clientX - d.sx;
     app.view.y = d.vy + e.clientY - d.sy;
@@ -906,11 +937,13 @@ window.addEventListener("pointermove", (e) => {
     d.ghost = rectGhost(d.start, d.cur);
     renderUI();
   }
-});
+}
 
 window.addEventListener("pointerup", async (e) => {
   const d = app.drag;
   if (!d) return;
+  // The release point counts even when no pointermove arrived (native drag-and-drop swallows them).
+  if (d.type !== "handle" || e.clientX !== d.sx || e.clientY !== d.sy) dragTo(e);
   if (d.type === "pan") app.drag = null;
   else if (d.type === "move") await moveUp(e);
   else if (d.type === "handle") await handleUp(e);
@@ -977,6 +1010,17 @@ function zoomBy(factor) {
   app.view.x = mx - (mx - app.view.x) * k;
   app.view.y = my - (my - app.view.y) * k;
   app.view.z = z;
+  applyView();
+}
+
+function zoomToSelection() {
+  const entry = app.sel && app.objects.get(app.sel);
+  if (!entry) return message("Select something first; Z zooms to it.", true);
+  const [x0, y0, x1, y1] = entry.box;
+  const rect = svg.getBoundingClientRect();
+  const fit = Math.min((rect.width - 80) / Math.max(x1 - x0, 1), (rect.height - 80) / Math.max(y1 - y0, 1));
+  const z = Math.max(0.05, Math.min(4, fit));
+  app.view = { z, x: rect.width / 2 - ((x0 + x1) / 2) * z, y: rect.height / 2 - ((y0 + y1) / 2) * z };
   applyView();
 }
 
@@ -1082,6 +1126,7 @@ window.addEventListener("keydown", async (e) => {
   if (key === "0") return fitView();
   if (key === "+" || key === "=") return zoomBy(1.25);
   if (key === "-") return zoomBy(0.8);
+  if (lower === "z") return zoomToSelection();
   if (TOOL_KEYS[lower]) setTool(TOOL_KEYS[lower]);
 });
 
@@ -1099,7 +1144,11 @@ window.addEventListener("beforeunload", (e) => {
 window.addEventListener("resize", () => applyView());
 
 function toggleSide() {
+  const before = svg.getBoundingClientRect();
   document.body.classList.toggle("side-hidden");
+  const after = svg.getBoundingClientRect();
+  app.view.x += (after.width - before.width) / 2;
+  app.view.y += (after.height - before.height) / 2;
   applyView();
 }
 

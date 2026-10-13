@@ -177,9 +177,18 @@ body.side-hidden #side {
   background: #e3eefb;
   font-weight: 600;
 }
-#file-list a {
-  cursor: pointer;
+#file-list .file-name {
   flex: 1;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+#file-list .file-name:hover {
+  text-decoration: underline;
 }
 #file-list .links a {
   flex: none;

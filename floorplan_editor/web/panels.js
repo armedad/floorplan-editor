@@ -45,8 +45,10 @@ export function renderFiles(appRef) {
         { class: name === s.file ? "current" : "" },
         el("input", { type: "checkbox", "data-step": name, disabled: !mergeable, title: mergeable ? "include in merge" : "" }),
         el(
-          "a",
+          "button",
           {
+            type: "button",
+            class: "file-name",
             title: `open ${name}`,
             on: {
               click: () => {
