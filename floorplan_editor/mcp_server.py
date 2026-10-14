@@ -59,7 +59,11 @@ mcp = FastMCP(
         "Objects can carry comments (c1, c2, ...) that the user or you wrote about them; they live in "
         "the plan with their object. list_comments reads them (all, or on given objects or the "
         "selection); add_comment, update_comment, and delete_comments change them. When the user asks "
-        "what's noted on something, or to handle the comments, call list_comments."
+        "what's noted on something, or to handle the comments, call list_comments. "
+        "One file can hold several floors of a building: floors lists, switches, adds (from a plan "
+        "or a traced image), renames, and reorders them, and every other tool works on the floor being "
+        "edited. export_jpeg stacks every floor in one picture; save mode 'folder' copies the whole "
+        "file with its sheets into a new folder."
     ),
 )
 
@@ -150,6 +154,11 @@ def _summary(state: dict, **extra) -> dict:
         "can_redo": state.get("can_redo"),
         "counts": _counts(plan),
     }
+    floors = state.get("floors") or []
+    if len(floors) > 1 or state.get("building"):
+        out["building"] = (state.get("building") or {}).get("name")
+        out["floor"] = {"index": state.get("floor"), "name": floors[state.get("floor") or 0]["name"] if floors else None}
+        out["floors"] = [f"{f['index']}: {f['name']}" for f in floors]
     open_flags = [f["id"] for f in state.get("flags") or [] if not f.get("done")]
     if open_flags:
         out["open_flags"] = open_flags
@@ -831,8 +840,8 @@ def convert_objects(
       nearest wall, as wide as the objects along it. `width` overrides the width; long walls in the
       selection are kept. A door's swing faces the side its drawn leaf was on unless swing is given.
       With no ids, `at` [x, y] inches finds the doorway gap at that point.
-    to='fixture': fixture_type (refrigerator, range, oven, dishwasher, toilet, tub, soaking_tub, sink,
-      washer, dryer, washer_dryer, stool, generic) centered on the box; rot turns it clockwise
+    to='fixture': fixture_type (refrigerator, range, oven, dishwasher, toilet, tub, soaking_tub, shower,
+      sink, washer, dryer, washer_dryer, stool, fireplace, cabinet, upper_cabinet, generic) centered on the box; rot turns it clockwise
       (90/270 swap w and h so it still fits the box); w/h override the size.
     to='counter' (a box), 'outline' (editable corners), 'label' (text, sized to the box's height),
     'erase' (white out the sheet ink there: good for text and symbols that aren't plan objects).
@@ -970,11 +979,13 @@ Operations (each a dict with "op"):
   "type":fixture type,"rot":..,"text":label,"wall":host,"width":..,"keep":false} (see convert_objects).
 - add_comment: {"op":"add_comment","kind":K,"id":ID,"text":..,"by":"cursor"};
   update_comment: {"op":"update_comment","comment":"c3","text":..,"to":[K,ID]}; delete_comments: {"op":"delete_comments","comments":["c3"]}
-Object fields: walls {id,x1,y1,x2,y2,thickness}; openings {id,wall,type:door|window,offset,width,
+Object fields: walls {id,x1,y1,x2,y2,thickness,kind?:glass_rail} (kind glass_rail draws a glass railing,
+not a solid wall; update it to null to make it a wall again); openings {id,wall,type:door|window,offset,width,
 hinge:start|end,swing:cw|ccw}; counters {id,x,y,w,h,overhang?:{edge,inches}} or {id,points:[[x,y],...]};
 fixtures {id,type,x,y,w,h,rot?} (x,y is the center; rot turns clockwise); labels {text,x,y,size_px?};
 erase {id,x,y,w,h}. Any object may also have comments [{id,text,by,created,edited?}]. Fixture types: refrigerator, range, oven, dishwasher, toilet, tub, soaking_tub,
-sink, washer, dryer, washer_dryer, stool, generic.
+shower, sink, washer, dryer, washer_dryer, stool, fireplace, cabinet (tall cabinet or pantry), upper_cabinet, generic.
+Base cabinets and islands are counters.
 """
 
 
@@ -1204,16 +1215,24 @@ def revert(discard_unsaved: bool = False) -> dict:
 
 @mcp.tool()
 def save(
-    mode: Literal["overwrite", "step", "as"] = "overwrite",
+    mode: Literal["overwrite", "step", "as", "folder"] = "overwrite",
     name: str | None = None,
     confirm_overwrite_base: bool = False,
 ) -> dict:
-    """Save the open plan with its .svg, .png, and -overlay.png.
+    """Save the open plan with its pictures (.svg, .png, -overlay.png; a building gets one stacked .png and overlay).
 
     mode 'overwrite' saves over the open file; 'step' writes the next plan-stepN.json and opens it;
-    'as' writes plan-<name>.json. Overwriting plan.json while steps exist needs
-    confirm_overwrite_base=true, since steps and merges are measured against it.
+    'as' writes plan-<name>.json. 'folder' copies the whole file (every floor, with each floor's sheet
+    image and flags) into a new or empty folder as plan.json and opens it there: name is a folder
+    name (made next to the current folder) or a full path. Overwriting plan.json while steps exist
+    needs confirm_overwrite_base=true, since steps and merges are measured against it.
     """
+    if mode == "folder":
+        if not name:
+            raise ToolError("mode 'folder' needs the new folder's name or path")
+        state = _post("/api/save", {"mode": "folder", "path": name})
+        _note(f"saved to {state['saved']['folder']}")
+        return _summary(state)
     state = _get("/api/state")
     if mode == "overwrite" and state.get("file") == BASE and len(state.get("files") or []) > 1 and not confirm_overwrite_base:
         raise ToolError("This would overwrite plan.json, the base the steps are built on. Save as a step, or pass confirm_overwrite_base=true.")
@@ -1224,6 +1243,66 @@ def save(
     state = _post("/api/save", {"mode": mode, "name": name})
     _note(f"saved {state.get('file')}")
     return _summary(state)
+
+
+@mcp.tool()
+def floors(
+    action: Literal["list", "switch", "add", "rename", "move", "delete", "rename_building"] = "list",
+    index: int | None = None,
+    path: str | None = None,
+    name: str | None = None,
+    to: int | None = None,
+) -> dict:
+    """See or change the floors of the open file. One file can hold a whole building; floors are
+    indexed from 0 at the bottom. Every other tool edits the floor being edited.
+
+    list: the floors. switch: edit floor `index`. add: add floors from `path`, which is a floor plan
+    image (traced into walls; the scale is guessed or copied from the current floor), a plan .json (its
+    floor, or every floor of a building), or a plan folder (its newest plan); each floor's sheet is
+    copied into this folder; `name` names a single added floor. rename: floor `index` (default the
+    current one) to `name`. move: floor `index` to position `to`. delete: remove floor `index`.
+    rename_building: the building's name (the export's title). Changes are undoable and need save.
+    """
+    if action == "list":
+        state = _get("/api/state")
+    elif action == "switch":
+        if index is None:
+            raise ToolError("switch needs index")
+        state = _post("/api/floor", {"index": index})
+    elif action == "add":
+        if not path:
+            raise ToolError("add needs path: a floor plan image, a plan .json, or a plan folder")
+        state = _post("/api/floors", {"action": "add", "path": path, "name": name})
+    else:
+        current = _get("/api/state").get("floor", 0)
+        body = {"action": "building" if action == "rename_building" else action, "index": current if index is None else index}
+        if action in ("rename", "rename_building"):
+            body["name"] = name
+        if action == "move":
+            body["to"] = to
+        state = _post("/api/floors", body)
+    floor_list = state.get("floors") or []
+    message = (state.get("floors_changed") or {}).get("message")
+    if action != "list":
+        _note(message or f"{action} floor")
+    return _summary(
+        state,
+        building=(state.get("building") or {}).get("name"),
+        floor={"index": state.get("floor"), "name": floor_list[state.get("floor") or 0]["name"] if floor_list else None},
+        floors=[{"index": f["index"], "id": f["id"], "name": f["name"], "sheet": f["sheet"]} for f in floor_list],
+        **({"message": message} if message else {}),
+    )
+
+
+@mcp.tool()
+def export_jpeg() -> dict:
+    """Write <file>-export.jpg in the plan's folder: every floor drawn clean on white at one scale,
+    stacked in one column with the top floor first, each captioned with its name."""
+    state = _post("/api/export")
+    out = state["exported"]
+    path = str(Path(state["folder"]) / out["file"])
+    _note(f"exported {out['file']}")
+    return {**out, "path": path}
 
 
 @mcp.tool()

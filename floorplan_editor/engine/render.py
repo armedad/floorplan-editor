@@ -11,8 +11,11 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .geometry import along, band, perp, rect_polygon, rotate, unit, wall_length
+from .geometry import along, band, rect_polygon, rotate, unit, wall_length
 from .model import FIXTURE_LABELS, SIDE_VEC
+
+# How far a door leaf opens from the wall, in degrees. 90 would be straight out.
+DOOR_SWING = 60
 
 
 class Canvas:
@@ -92,7 +95,25 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
     for wall in plan.get("walls", []):
         thickness = float(wall["thickness"])
         tag = ["walls", wall["id"]]
+        rail = wall.get("kind") == "glass_rail"
         for start, end in wall_parts(wall, openings_by_wall.get(wall["id"], [])):
+            if rail:
+                ops.append(
+                    {
+                        "op": "polygon",
+                        "points": [canvas.pt(*p) for p in band(wall, start, end, thickness)],
+                        "fill": None,
+                        "stroke": ink,
+                        "width": 1,
+                        "role": "rail",
+                        "obj": tag,
+                    }
+                )
+                ops.append(
+                    {"op": "line", "a": canvas.pt(*along(wall, start)), "b": canvas.pt(*along(wall, end)),
+                     "stroke": ink, "width": 1, "obj": tag}
+                )
+                continue
             ops.append(
                 {
                     "op": "polygon",
@@ -116,7 +137,9 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
                 ux, uy = unit(wall)
                 hx, hy = along(wall, hinge_at)
                 closed = (hx + ux * width * direction, hy + uy * width * direction)
-                px, py = perp(ux * direction, uy * direction, swing)
+                # Positive rotation is clockwise on the sheet. A door opens 60° from the wall.
+                turn = DOOR_SWING if swing == "cw" else -DOOR_SWING
+                px, py = rotate(ux * direction, uy * direction, turn)
                 opened = (hx + px * width, hy + py * width)
                 center = canvas.pt(hx, hy)
                 radius = canvas.px(width)
@@ -272,6 +295,32 @@ def fixture_ops(fixture: dict, canvas: Canvas, ink, fill: bool) -> list[dict]:
     if kind == "sink":
         poly(box)
         oval(0, 0, w * 0.55, h * 0.55)
+        return ops
+
+    if kind == "shower":
+        poly(box)
+        for a, b in (((-w / 2, -h / 2), (w / 2, h / 2)), ((w / 2, -h / 2), (-w / 2, h / 2))):
+            ops.append({"op": "line", "a": canvas.pt(*_local(fixture, *a)), "b": canvas.pt(*_local(fixture, *b)),
+                        "stroke": ink, "width": 1, "obj": tag})
+        oval(0, 0, min(w, h) * 0.14, min(w, h) * 0.14)
+        return ops
+
+    if kind == "fireplace":
+        poly(box)
+        step = max(min(w, h) / 4, 1e-6)
+        c = -w / 2 - h / 2 + step
+        while c < w / 2 + h / 2:
+            x0, x1 = max(-w / 2, -h / 2 + c), min(w / 2, h / 2 + c)
+            if x1 > x0:
+                ops.append({"op": "line", "a": canvas.pt(*_local(fixture, x0, x0 - c)),
+                            "b": canvas.pt(*_local(fixture, x1, x1 - c)), "stroke": ink, "width": 1, "obj": tag})
+            c += step
+        return ops
+
+    if kind == "cabinet":
+        poly(box)
+        ops.append({"op": "line", "a": canvas.pt(*_local(fixture, -w / 2, -h / 2)),
+                    "b": canvas.pt(*_local(fixture, w / 2, h / 2)), "stroke": ink, "width": 1, "obj": tag})
         return ops
 
     if kind == "range":

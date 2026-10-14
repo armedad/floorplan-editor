@@ -1,4 +1,4 @@
-"""Command line: validate, render, overlay, merge, trace, serve, mcp."""
+"""Command line: validate, render, export, overlay, merge, trace, serve, mcp."""
 
 from __future__ import annotations
 
@@ -6,7 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from .engine import PlanError, checked, load_plan, merge_plans, overlay_file, render_files, save_plan
+from .engine import PlanError, checked, is_building, load_plan, overlay_file, render_files, save_plan
+from .engine.building import export_image, merge_any
 
 
 def _emit_errors(exc: PlanError) -> int:
@@ -19,7 +20,7 @@ def _cmd_merge(args) -> int:
     try:
         base = checked(load_plan(args.base))
         steps = [(path.name, checked(load_plan(path))) for path in args.steps]
-        merged = merge_plans(base, steps)
+        merged = merge_any(base, steps)
         merged["name"] = args.name or merged.get("name", "merged")
         merged["notes"] = "Merged from " + ", ".join(path.name for path in args.steps) + f" on base {args.base.name}."
         checked(merged)
@@ -72,9 +73,13 @@ def main(argv: list[str] | None = None) -> int:
     validate_cmd = sub.add_parser("validate", help="check a plan file")
     validate_cmd.add_argument("plan", type=Path)
 
-    render_cmd = sub.add_parser("render", help="write <name>.svg and <name>.png")
+    render_cmd = sub.add_parser("render", help="write <name>.svg and <name>.png (a building: every floor stacked in <name>.png)")
     render_cmd.add_argument("plan", type=Path)
     render_cmd.add_argument("--out-dir", type=Path)
+
+    export_cmd = sub.add_parser("export", help="write <name>-export.jpg: every floor drawn clean, stacked top floor first")
+    export_cmd.add_argument("plan", type=Path)
+    export_cmd.add_argument("--out", type=Path)
 
     overlay_cmd = sub.add_parser("overlay", help="draw the plan in red over the source sheet")
     overlay_cmd.add_argument("plan", type=Path)
@@ -136,16 +141,29 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     stem = args.plan.stem
+    if args.cmd == "export":
+        out = args.out or args.plan.with_name(f"{stem}-export.jpg")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        export_image(plan).save(out, "JPEG", quality=92)
+        print(out)
+        return 0
     if args.cmd == "render":
         out_dir = args.out_dir or args.plan.parent
         out_dir.mkdir(parents=True, exist_ok=True)
-        svg_path = out_dir / f"{stem}.svg"
         png_path = out_dir / f"{stem}.png"
+        if is_building(plan):
+            export_image(plan).save(png_path)
+            print(png_path)
+            return 0
+        svg_path = out_dir / f"{stem}.svg"
         render_files(plan, svg_path, png_path)
         print(svg_path)
         print(png_path)
         return 0
 
+    if is_building(plan):
+        print("overlay draws one floor; open the building in the editor (floorplan serve) to see each floor's overlay", file=sys.stderr)
+        return 1
     out = args.out or args.plan.with_name(f"{stem}-overlay.png")
     out.parent.mkdir(parents=True, exist_ok=True)
     try:

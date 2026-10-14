@@ -97,10 +97,12 @@ path, or the browser's own file picker when the system dialog can't appear. Set
 | `plan.json` | The base plan, usually traced from the sheet. Steps are measured against it. |
 | `plan-step1.json`, `plan-step2.json`, ... | Saved ideas, each an edit of the base. |
 | `plan-merged.json` | The result of merging steps. |
-| any `.jpg` or `.png` not starting with `plan` | The source sheet. A file whose name starts with `sheet` wins if there are several. |
+| any `.jpg` or `.png` not starting with `plan` | The source sheet. A file whose name starts with `sheet` wins if there are several. In a building, each floor names its own sheet (`floor-2.png`, ...). |
+| `plan-export.jpg` | Every floor stacked in one picture, from **Export JPEG**. |
 
-Each plan file is saved with a matching `.svg`, `.png`, and `-overlay.png`. The overlay
-is only written when the sheet is the same pixel size as the plan's canvas.
+Each plan file is saved with a matching `.svg`, `.png`, and `-overlay.png` (a building gets
+a stacked `.png` and `-overlay.png`). The overlay is only written when the sheet is the same
+pixel size as the plan's canvas.
 
 The server holds your unsaved edits in memory, so reloading the page doesn't lose them.
 Closing the server does.
@@ -197,8 +199,10 @@ pastes at the pointer.
 - **Fixture (X).** Pick a type and a rotation in the toolbar, then click to place it at its
   usual size, or drag a box over the printed symbol to fit it. A fixture's center is the
   point it rotates around. Types are refrigerator,
-  range, oven, dishwasher, toilet, tub, soaking tub, sink, washer, dryer, washer/dryer,
-  stool, and generic. R turns the next placement, or a selected fixture, 90°.
+  range, oven, dishwasher, toilet, tub, soaking tub, shower, sink, washer, dryer,
+  washer/dryer, stool, fireplace (hatched), cabinet (a tall cabinet or pantry, drawn with a diagonal), upper
+  cabinet, and generic. Base cabinets and islands are counters. R turns the next placement,
+  or a selected fixture, 90°.
 - **Label (T).** Click where the label goes and type it. Text typed in the toolbar box is
   reused for every click, for dropping the same label several times.
 - **Erase (E).** Drag a rectangle over printed ink on the sheet. The region whites out that
@@ -313,6 +317,32 @@ two steps change the same object in different ways, the merge stops and names bo
 steps, so nothing is silently overwritten. **Save** overwrites the open file,
 **Save as…** writes a new name, and **Revert** drops unsaved edits.
 
+### Buildings: several floors in one file
+
+One plan file can hold every floor of a building. Each floor keeps its own sheet image,
+scale, flags, and comments.
+
+- The bar over the top left of the drawing shows the building's name and a tab for each
+  floor, top floor first. Click a tab, or press **PageUp** and **PageDown**, to flip floors.
+  Each floor remembers where you were zoomed. Every tool and panel works on the floor
+  you're looking at.
+- **+ Floor** adds a floor to the open file. It can come from a floor plan image, which is
+  traced into walls (the scale is guessed from the walls, or copied from the current floor).
+  It can also come from a plan `.json`, bringing its floor or every floor of a building, or
+  from a plan folder, using its newest plan. The new floor's sheet is copied into this
+  folder as `floor-N.png`. Adding a floor to a one-floor plan turns the file into a building.
+- Right-click a tab (or double-click it) to rename, reorder, or remove a floor. Click the
+  building's name to rename it. All of this is undoable and needs a save.
+- **Export JPEG** (Ctrl+E) writes `<file>-export.jpg` in the folder. Every floor is drawn
+  clean on white at one scale, stacked top floor first with its name above it, and the
+  building's name is the title.
+- **Save to a new folder…** (under **Folder and steps**) copies the open file, with every
+  floor's sheet image and flags, into a new folder as `plan.json` and opens it there. A
+  bare name makes the folder next to the current one.
+- Steps work on buildings the same way: **Save as plan-stepN** snapshots the whole
+  building. Merging matches floors by id, so one step can edit Floor 2 while another adds a
+  floor. Saving a building writes a stacked `.png` and overlay instead of an `.svg`.
+
 ### Starting a new plan from an image
 
 Usually you just open or drop the image (see [Opening things](#opening-things)): it is
@@ -351,6 +381,8 @@ Ctrl+K shows all of these, searchable.
 | V, W, D, N, C, P, X, T, E, K, F | Select, Wall, Door, Window, Counter, Outline, Fixture, Label, Erase, Scale, Flag |
 | Ctrl+O | Open a plan, folder, or image |
 | Ctrl+S, Ctrl+Shift+S | Save, save as the next step |
+| PageUp, PageDown | Go up or down a floor |
+| Ctrl+E | Export a JPEG of every floor, stacked |
 | Ctrl+Z, Ctrl+Y (or Ctrl+Shift+Z) | Undo, redo |
 | Ctrl+A | Select everything |
 | Delete or Backspace | Delete the selection |
@@ -421,7 +453,9 @@ is unique across the whole plan.
   rotation of north, east, south, west.
 - **canvas** ties inches to sheet pixels: pixel = `origin_px + inches × px_per_inch`.
   `width_px` and `height_px` are the sheet's size.
-- **walls** are center lines with a thickness.
+- **walls** are center lines with a thickness. `"kind": "glass_rail"` makes one a glass
+  railing, drawn as a thin outline with a line down the middle. In the editor, select
+  walls and tick Glass rail in the side panel.
 - **openings** sit on a wall. `offset` is the distance from the wall's start `(x1, y1)` to
   the near edge of the opening. Doors hinge at the `start` or `end` side of the opening and
   swing `cw` or `ccw`. Openings must fit on the wall and not overlap each other.
@@ -435,6 +469,23 @@ is unique across the whole plan.
 - **comments** can be added to any object. Each has an `id` (unique across the plan), `text`,
   and optionally `by` (`user` or `cursor`), `created`, and `edited` (ISO times). They aren't
   drawn in saved pictures.
+- **sheet** (optional) names the plan's sheet image in its folder.
+
+A building wraps several such plans, listed bottom floor first. Each floor also has an
+`id` (unique in the file) and usually its own `sheet`:
+
+```json
+{
+  "name": "Chestnut Corner",
+  "floors": [
+    { "id": "floor-1", "name": "Floor 1", "sheet": "sheet.png", "units": "inches", "compass": {}, "canvas": {}, "walls": [] },
+    { "id": "floor-2", "name": "Floor 2", "sheet": "floor-2.png", "units": "inches", "compass": {}, "canvas": {}, "walls": [] }
+  ]
+}
+```
+
+(`compass` and `canvas` are shortened here; each floor has full ones like above.) Floor
+flags live in `flags.json` for the first floor and `flags-floor-N.json` for the others.
 
 ## Driving the editor from Cursor (MCP)
 
@@ -474,7 +525,8 @@ browser and say "do what F1 and F2 say." The tools:
 | What you selected | `get_selection` (the objects selected in the browser, their box, and whether the walls run the same way); `control_browser` with `ids` selects objects for you to look at |
 | Cleaning up a trace | `convert_objects` (ids or the selection into a wall, door, window, fixture, counter, outline, label, or erase region), `merge_walls`, `set_wall_thickness` (with the face that stays put), `find_stacked_walls` (and `apply` to merge them), `find_stray_bits` (and `delete`) |
 | Editing | `add_object`, `update_object`, `delete_objects`, `move_object`, `move_wall_end`, `split_wall`, `edit_counter_outline`, `flip_door`, `rotate_fixture`, `set_plan_properties` (name, notes, compass, scale), `trace_walls` (merging stacked bars unless `merge_stacked` is off), and `apply_ops` for any batch of edit operations as one undo step |
-| History and saving | `undo`, `redo`, `revert`, `save` (overwrite, next step, or a new name), `merge_steps` |
+| Floors | `floors` (list, switch, add from a plan or a traced image, rename, move, delete, rename the building), `export_jpeg` (every floor stacked in one picture) |
+| History and saving | `undo`, `redo`, `revert`, `save` (overwrite, next step, a new name, or a new folder with every floor's sheet), `merge_steps` |
 | The page | `control_browser`: open the page, select, zoom to an object or region, fit, switch tools, toggle the sheet, erase regions, snapping, grid, and side panel, or show a message |
 
 Ids can be bare (`w12`, `toilet-1`) or kind-qualified (`walls:w12`, `labels:3`; labels have
@@ -498,6 +550,7 @@ The same engine is available without the browser:
 ```powershell
 floorplan validate plan.json
 floorplan render plan.json [--out-dir DIR]
+floorplan export plan.json [--out FILE.jpg]
 floorplan overlay plan.json sheet.jpg [--out FILE] [--erase-from plan.json]
 floorplan merge plan.json plan-step1.json plan-step2.json --out plan-merged.json
 floorplan trace sheet.jpg --out plan.json --px-per-inch 1.03 --up south
@@ -505,6 +558,8 @@ floorplan serve [FOLDER] [--sheet IMAGE] [--port 35667] [--no-browser]
 floorplan mcp
 ```
 
+`export` draws every floor clean, stacked top floor first, in one JPEG; `render` of a
+building writes the same stack as a PNG. `overlay` takes a one-floor plan.
 `overlay --erase-from` takes the traced base plan and whites out the sheet wherever the
 new plan removed or moved an object, in addition to the plan's own erase regions. `trace`
 accepts the same `--dark`, `--min-thickness`, `--max-thickness`, and `--min-length`

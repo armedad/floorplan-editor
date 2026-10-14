@@ -749,7 +749,7 @@ button.flag-tool:hover {
   left: 50%;
   bottom: 8px;
   transform: translateX(-50%);
-  max-width: min(760px, calc(100% - 24px));
+  max-width: min(760px, calc(100% - 150px));
   padding: 4px 12px;
   border-radius: 14px;
   background: rgba(29, 35, 41, 0.78);
@@ -757,6 +757,94 @@ button.flag-tool:hover {
   font-size: 12px;
   pointer-events: none;
   text-align: center;
+}
+/* floors of the open file, over the drawing's top left */
+#floorbar {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  max-width: calc(100% - 12px);
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  z-index: 4;
+}
+#floorbar[hidden] {
+  display: none;
+}
+#floorbar .floor-building {
+  padding: 0 6px;
+  font-weight: 600;
+  flex-shrink: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#floorbar .floor-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+#floorbar .floor-tab {
+  border-color: transparent;
+  white-space: nowrap;
+}
+#floorbar .floor-tab:hover {
+  border-color: #b8c0c8;
+}
+#floorbar .floor-tab.active {
+  background: #1565c0;
+  border-color: #1565c0;
+  color: #fff;
+}
+#floorbar .floor-add,
+#floorbar .floor-export {
+  white-space: nowrap;
+}
+/* zoom, over the drawing's bottom right: out, current size, in */
+#zoombar {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  z-index: 6;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+#zoombar button {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  min-width: 32px;
+  padding: 6px 8px;
+}
+#zoombar button + button {
+  border-left: 1px solid #e3e7eb;
+}
+#zoombar button:hover:not(:disabled) {
+  background: #f1f4f7;
+}
+#zoom-out,
+#zoom-in {
+  font-size: 16px;
+  line-height: 1;
+  width: 34px;
+  padding: 6px 0;
+}
+#zoom-level {
+  min-width: 4.6em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #37414b;
 }
 #actionbar {
   position: absolute;
@@ -842,6 +930,7 @@ button.danger:hover {
 }
 #dropzone[hidden],
 #hint[hidden],
+#zoombar[hidden],
 #actionbar[hidden],
 #menu[hidden],
 #pop[hidden],
@@ -892,6 +981,36 @@ button.danger:hover {
   padding: 4px 9px 2px;
   font-size: 11px;
   color: #6a737d;
+}
+#toast {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  z-index: 70;
+  max-width: 70vw;
+  padding: 9px 18px;
+  border-radius: 6px;
+  background: #2e7d32;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transform: translate(-50%, -10px);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+}
+#toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+#toast.error {
+  background: #b00020;
+}
+#save.saved {
+  background: #2e7d32;
+  border-color: #2e7d32;
+  color: #fff;
 }
 #tip {
   position: fixed;

@@ -83,16 +83,22 @@ export function editFlagNote(id, fresh = false) {
   const f = getFlag(id);
   if (!f) return;
   const [sx, sy] = toScreen(f.px[0], f.px[1]);
+  const discard = () =>
+    call("/api/flags", { action: "delete", ids: [f.id] }, { selectRef: false }).then((s) => s && message(`Removed ${f.id}; it had no note.`));
   popInput({
     x: sx,
     y: sy + 8,
-    label: fresh ? `${f.id} placed${f.target ? ` on ${describeKey(`${f.target[0]}:${f.target[1]}`)}` : ""}. Note (optional):` : `Note for ${f.id}`,
+    label: fresh ? `${f.id} placed${f.target ? ` on ${describeKey(`${f.target[0]}:${f.target[1]}`)}` : ""}. Note:` : `Note for ${f.id}`,
     value: f.note || "",
     multiline: true,
-    hint: "Say what should change here. Enter saves; Shift+Enter for a new line; Esc skips.",
+    hint: fresh
+      ? "Say what should change here. Enter saves; Shift+Enter for a new line; Esc or a blank note removes the flag."
+      : "Say what should change here. Enter saves; Shift+Enter for a new line; Esc skips.",
     onCommit: (text) => {
-      if (text.trim() !== (f.note || "")) call("/api/flags", { action: "update", id: f.id, note: text }, { selectRef: false });
+      if (fresh && !text.trim()) discard();
+      else if (text.trim() !== (f.note || "")) call("/api/flags", { action: "update", id: f.id, note: text }, { selectRef: false });
     },
+    onCancel: fresh ? discard : undefined,
   });
 }
 

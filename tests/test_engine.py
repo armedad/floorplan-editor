@@ -41,6 +41,18 @@ def test_erase_region_schema(sample):
     assert any("plan.erase[0].w must be > 0" in e for e in validate_plan(sample))
 
 
+def test_doors_swing_sixty_degrees(sample):
+    for opening in sample["openings"]:
+        if opening.get("type") != "door":
+            continue
+        for hinge in ("start", "end"):
+            for swing in ("cw", "ccw"):
+                opening["hinge"] = hinge
+                opening["swing"] = swing
+                arc = next(op for op in scene(sample) if op["obj"] == ["openings", opening["id"]] and op["op"] == "arc")
+                assert (arc["end"] - arc["start"]) % 360 == pytest.approx(60)
+
+
 def test_scene_ops_are_tagged(sample):
     ops = scene(sample)
     tags = {tuple(op["obj"]) for op in ops}
@@ -50,6 +62,32 @@ def test_scene_ops_are_tagged(sample):
     assert ("fixtures", "toilet") in tags
     assert ("labels", 0) in tags
     assert all("obj" in op for op in ops)
+
+
+def test_shower_and_cabinet_fixtures(sample):
+    sample["fixtures"] += [
+        {"id": "sh", "type": "shower", "x": 300, "y": 200, "w": 36, "h": 36},
+        {"id": "pantry", "type": "cabinet", "x": 250, "y": 200, "w": 24, "h": 24, "rot": 90},
+        {"id": "uppers", "type": "upper_cabinet", "x": 200, "y": 200, "w": 36, "h": 12},
+        {"id": "hearth", "type": "fireplace", "x": 150, "y": 200, "w": 60, "h": 24, "rot": 42},
+    ]
+    assert validate_plan(sample) == []
+    ops = scene(sample)
+    lines = lambda fid: [op for op in ops if op["obj"] == ["fixtures", fid] and op["op"] == "line"]
+    assert len(lines("sh")) == 2
+    assert len(lines("pantry")) == 1
+    assert len(lines("hearth")) >= 4
+    assert any(op["op"] == "text" and op["text"] == "UPPER" for op in ops if op["obj"] == ["fixtures", "uppers"])
+
+
+def test_glass_rail_walls(sample):
+    sample["walls"].append({"id": "rail", "x1": 10, "y1": 10, "x2": 60, "y2": 10, "thickness": 1.5, "kind": "glass_rail"})
+    assert validate_plan(sample) == []
+    rail = [op for op in scene(sample) if op["obj"] == ["walls", "rail"]]
+    assert {op["op"] for op in rail} == {"polygon", "line"}
+    assert all(op.get("fill") is None for op in rail)
+    sample["walls"][-1]["kind"] = "fence"
+    assert any("kind must be one of glass_rail" in e for e in validate_plan(sample))
 
 
 def test_render_files(tmp_path, sample):

@@ -273,6 +273,16 @@ function thicknessFields(walls) {
   return [field, row];
 }
 
+function railField(walls) {
+  const on = walls.every((w) => w.kind === "glass_rail");
+  const mixed = !on && walls.some((w) => w.kind === "glass_rail");
+  const set = (checked) =>
+    E.send({ op: "batch", ops: walls.map((w) => ({ op: "update", kind: "walls", id: w.id, fields: { kind: checked ? "glass_rail" : null } })) });
+  const box = el("input", { type: "checkbox", checked: on, on: { change: (e) => set(e.target.checked) } });
+  box.indeterminate = mixed;
+  return el("label", { class: "row", "data-help": "glass-rail" }, box, " Glass rail");
+}
+
 // ---------------------------------------------------------------- properties by kind
 
 function wallProps(w) {
@@ -291,6 +301,7 @@ function wallProps(w) {
       { unit: "angle", hint: "° from right, counterclockwise" },
     ),
     ...thicknessFields([w]),
+    railField([w]),
     ...dimFields(k, w.id, dims, ["gaps"]),
     more(
       "Ends and id",
@@ -450,6 +461,7 @@ function multiProps(info) {
   return [
     el("p", {}, Object.entries(counts).map(([k, n]) => `${n} ${n === 1 ? k.replace(/s$/, "") : k}`).join(", ")),
     walls ? thicknessFields(walls) : null,
+    walls ? railField(walls) : null,
     ids.length
       ? el(
           "p",

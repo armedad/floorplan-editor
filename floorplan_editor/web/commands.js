@@ -5,6 +5,7 @@ import * as E from "./app.js";
 import { addComment } from "./comments.js";
 import { mergeSelectedWalls, mergeStacked, selectFound, showConvertMenu, thicknessSelection } from "./convert.js";
 import { copyAllFlags, copyText, editFlagNote, flagList, flagText, getFlag, setFlagDone } from "./flags.js";
+import { deleteFloor, exportJpeg, renameBuilding, renameFloor, saveToFolder, showAddMenu, stepFloor } from "./floors.js";
 import { openPicker, showOpenMenu } from "./open.js";
 import { openNewDialog, runTrace, showPanel } from "./panels.js";
 import { $, el, hideMenu, showMenu } from "./ui.js";
@@ -43,6 +44,16 @@ export const COMMANDS = [
   { id: "merge", group: "File", label: "Merge steps…", when: (c) => c.steps > 1, run: () => showPanel("files-panel", "Check the steps to merge, then press Merge checked.") },
   { id: "overlay", group: "File", label: "View the overlay picture", when: (c) => c.plan && c.sheet, run: () => window.open(`/api/overlay?t=${Date.now()}`, "_blank") },
   { id: "new-plan", group: "File", label: "New plan from a sheet image (manual setup)…", run: () => openNewDialog() },
+  { id: "save-folder", group: "File", label: "Save to a new folder (every floor and its sheet)…", when: (c) => c.plan, run: () => saveToFolder() },
+  { id: "export-jpeg", group: "File", label: "Export a JPEG of every floor, stacked", keys: ["Ctrl+E"], when: (c) => c.plan, run: () => exportJpeg() },
+
+  // Floors
+  { id: "floor-up", group: "Floors", label: "Go up a floor", keys: ["PageUp"], when: (c) => c.plan, run: () => stepFloor(1) },
+  { id: "floor-down", group: "Floors", label: "Go down a floor", keys: ["PageDown"], when: (c) => c.plan, run: () => stepFloor(-1) },
+  { id: "floor-add", group: "Floors", label: "Add a floor from a plan or a floor plan image…", when: (c) => c.plan, run: () => showAddMenu(document.querySelector("#floorbar .floor-add")) },
+  { id: "floor-rename", group: "Floors", label: "Rename this floor…", when: (c) => c.plan, run: () => renameFloor() },
+  { id: "floor-delete", group: "Floors", label: "Remove this floor from the file", when: (c) => c.floors > 1, run: () => deleteFloor() },
+  { id: "building-rename", group: "Floors", label: "Rename the building…", when: (c) => c.building, run: () => renameBuilding() },
 
   // Edit
   { id: "undo", group: "Edit", label: "Undo", keys: ["Ctrl+Z"], when: (c) => c.canUndo, run: () => E.undo() },
@@ -159,6 +170,8 @@ export function context() {
     canRedo: !!(s && s.can_redo),
     sheet: !!(s && s.sheet),
     steps: s ? s.files.length : 0,
+    floors: s && s.floors ? s.floors.length : 0,
+    building: !!(s && s.building),
     clipboard: !!(E.app.clipboard && E.app.clipboard.length),
     flags: flags.filter((f) => !f.done).length,
     doneFlags: flags.filter((f) => f.done).length,

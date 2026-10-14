@@ -12,8 +12,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from .merge import merge_plans
-from .model import PlanError, checked, load_plan, save_plan
+from .building import export_image, floor_by_id, merge_any, overlay_stack
+from .model import PlanError, checked, is_building, load_plan, save_plan
 from .overlay import overlay_file
 from .render import Canvas, render_files
 
@@ -38,6 +38,17 @@ def _order(name: str) -> tuple[int, int, str]:
 def list_plans(folder: Path) -> list[str]:
     names = [p.name for p in Path(folder).glob("plan*.json") if PLAN_RE.match(p.name)]
     return sorted(names, key=_order)
+
+
+def newest_plan(folder: Path) -> str | None:
+    """The plan a folder opens to: its newest step, else plan.json, else whatever plan is there."""
+    plans = list_plans(folder)
+    steps = [name for name in plans if STEP_RE.match(name)]
+    if steps:
+        return steps[-1]
+    if BASE_NAME in plans:
+        return BASE_NAME
+    return plans[-1] if plans else None
 
 
 def next_step_name(folder: Path) -> str:
@@ -66,12 +77,24 @@ class SaveResult:
 
 
 def write_outputs(plan: dict, path: Path, sheet: Path | None, base: dict | None) -> SaveResult:
-    """Save plan JSON plus .svg, .png, and -overlay.png next to it."""
+    """Save plan JSON plus .svg, .png, and -overlay.png next to it. A building gets its floors
+    stacked in the .png and -overlay.png, top floor first, and no .svg."""
     checked(plan)
     path = Path(path)
     result = SaveResult()
     save_plan(plan, path)
     result.files.append(path.name)
+    if is_building(plan):
+        png = path.with_suffix(".png")
+        export_image(plan).save(png, "PNG")
+        result.files.append(png.name)
+        overlay, warnings = overlay_stack(plan, path.parent, base if path.name != BASE_NAME else None)
+        if overlay is not None:
+            out = path.with_name(f"{path.stem}-overlay.png")
+            overlay.save(out, "PNG")
+            result.files.append(out.name)
+        result.warnings += warnings
+        return result
     svg, png = path.with_suffix(".svg"), path.with_suffix(".png")
     render_files(plan, svg, png)
     result.files += [svg.name, png.name]
@@ -81,7 +104,8 @@ def write_outputs(plan: dict, path: Path, sheet: Path | None, base: dict | None)
         canvas = Canvas(plan)
         if size == (canvas.width, canvas.height):
             out = path.with_name(f"{path.stem}-overlay.png")
-            overlay_file(plan, Path(sheet), out, erase_from=base if path.name != BASE_NAME else None)
+            erase_from = floor_by_id(base, plan.get("id")) if path.name != BASE_NAME else None
+            overlay_file(plan, Path(sheet), out, erase_from=erase_from)
             result.files.append(out.name)
         else:
             result.warnings.append(f"sheet is {size[0]}x{size[1]}, canvas is {canvas.width}x{canvas.height}: no overlay")
@@ -104,7 +128,7 @@ def merge_folder(folder: Path, base_name: str, step_names: list[str], sheet: Pat
     folder = Path(folder)
     base = checked(load_plan(folder / base_name))
     steps = [(name, checked(load_plan(folder / name))) for name in step_names]
-    merged = merge_plans(base, steps)
+    merged = merge_any(base, steps)
     merged["name"] = merged.get("name", "merged")
     merged["notes"] = "Merged from " + ", ".join(step_names) + f" on base {base_name}."
     result = write_outputs(merged, folder / out_name, sheet, load_base(folder))

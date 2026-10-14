@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { handleKey, initCommands, renderActionBar, showContextMenu } from "./commands.js";
 import { commentsMarkup, renderCommentsPanel, revealComments } from "./comments.js";
 import { addFlag, deleteFlags, editFlagNote, flagsMarkup, getFlag, moveFlag, renderFlagsPanel } from "./flags.js";
+import { initFloors, renderFloorBar } from "./floors.js";
 import {
   Canvas,
   arcPath,
@@ -47,14 +48,20 @@ export const FIXTURE_SIZES = {
   toilet: [20, 28],
   tub: [60, 30],
   soaking_tub: [66, 32],
+  shower: [36, 36],
   sink: [30, 20],
   washer: [27, 28],
   dryer: [27, 28],
   washer_dryer: [27, 30],
   stool: [16, 16],
+  fireplace: [60, 24],
+  cabinet: [24, 24],
+  upper_cabinet: [36, 12],
   generic: [24, 24],
 };
 
+const ZOOM_MIN = 0.05;
+const ZOOM_MAX = 40;
 const RED = "#c40000";
 const RED_FILL = "rgba(196,0,0,0.43)";
 const TOOLS = new Set(["select", "wall", "door", "window", "counter", "polygon", "fixture", "label", "erase", "calibrate", "flag"]);
@@ -85,6 +92,7 @@ export const app = {
   sheetKey: "",
   sheetVersion: 0,
   fittedFor: null,
+  floorViews: new Map(),
   traceWalls: null,
   spaceDown: false,
   busy: false,
@@ -100,6 +108,35 @@ export function message(text, isError = false) {
   node.textContent = text || "";
   node.className = isError ? "error" : "";
   node.title = text || "";
+}
+
+let toastTimer = null;
+
+/** A short notice over the drawing that fades on its own; errors stay up longer. */
+export function toast(text, isError = false) {
+  const node = $("toast");
+  node.textContent = text;
+  node.className = isError ? "error show" : "show";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (node.className = isError ? "error" : ""), isError ? 6000 : 2500);
+}
+
+let saveFlashTimer = null;
+
+function confirmSaved(saved) {
+  const time = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  const warn = saved.warnings && saved.warnings.length ? ` (${saved.warnings.join("; ")})` : "";
+  const where = saved.folder ? `${saved.folder}\\${saved.files[0]}` : saved.files[0];
+  message(`Saved ${saved.folder ? `to ${saved.folder}: ` : ""}${saved.files.join(", ")} at ${time}${warn}`);
+  toast(`✓ Saved ${where} at ${time}${warn ? " with warnings, see the status bar" : ""}`);
+  const button = $("save");
+  button.textContent = "Saved ✓";
+  button.classList.add("saved");
+  clearTimeout(saveFlashTimer);
+  saveFlashTimer = setTimeout(() => {
+    button.textContent = "Save";
+    button.classList.remove("saved");
+  }, 1800);
 }
 
 export async function call(path, body, extra = {}) {
@@ -212,16 +249,33 @@ export async function send(op, { selectRef = true } = {}) {
 const keyOf = (ref) => `${ref[0]}:${ref[1]}`;
 
 export function setState(state, { selectRef = true } = {}) {
+  const floorKey = `${state.folder}|${state.file}|${state.floor}`;
+  const newFloor = app.floorKey !== undefined && app.floorKey !== floorKey;
+  if (newFloor) app.floorViews.set(app.floorKey, { ...app.view });
+  app.floorKey = floorKey;
   app.state = state;
   app.plan = state.plan;
   app.canvas = state.plan ? new Canvas(state.plan) : null;
   app.objects = state.plan ? indexScene(state.scene) : new Map();
+  if (newFloor) {
+    // Ids repeat from floor to floor, so a selection or trace preview can't carry over.
+    setSelection([]);
+    app.traceWalls = null;
+    app.draft = null;
+    app.fittedFor = null;
+    const seen = app.floorViews.get(floorKey);
+    if (seen && state.plan) {
+      app.view = { ...seen };
+      app.fittedFor = `${state.folder}|${app.canvas.width}x${app.canvas.height}`;
+    }
+  }
   if (selectRef && state.refs) setSelection(state.refs.map(keyOf));
   else if (selectRef && state.ref) setSelection([keyOf(state.ref)]);
   else if (state.ref === null && "ref" in state) setSelection([...app.selection].filter((k) => k.startsWith("flags:")));
   if (state.flag) setSelection([`flags:${state.flag}`]);
   setSelection([...app.selection].filter((k) => getObject(k)), app.sel);
   $("empty").hidden = !!state.plan;
+  $("zoombar").hidden = !state.plan;
   if (!state.plan) renderEmpty();
   if (state.plan) {
     const fitKey = `${state.folder}|${app.canvas.width}x${app.canvas.height}`;
@@ -229,14 +283,12 @@ export function setState(state, { selectRef = true } = {}) {
     app.fittedFor = fitKey;
   }
   renderAll();
+  renderFloorBar();
   renderFiles(app);
   renderProps(app);
   renderFlagsPanel();
   renderCommentsPanel();
-  if (state.saved) {
-    const warn = state.saved.warnings.length ? ` (${state.saved.warnings.join("; ")})` : "";
-    message(`Saved ${state.saved.files.join(", ")}${warn}`);
-  }
+  if (state.saved) confirmSaved(state.saved);
 }
 
 // ---------------------------------------------------------------- objects and selection
@@ -261,7 +313,7 @@ const named = (type, id) => (String(id).toLowerCase().startsWith(type.split(" ")
 export function describeKey(key) {
   const [kind, id] = splitKey(key);
   const o = getObject(key);
-  if (kind === "walls") return named("wall", id);
+  if (kind === "walls") return named(o && o.kind === "glass_rail" ? "glass rail" : "wall", id);
   if (kind === "openings") return named(o ? o.type : "opening", id);
   if (kind === "counters") return named(o && o.points ? "counter outline" : "counter", id);
   if (kind === "fixtures") return named(o ? o.type.replace(/_/g, " ") : "fixture", id);
@@ -599,7 +651,13 @@ export function renderAll() {
 export function applyView() {
   const v = app.view;
   world.setAttribute("transform", `translate(${v.x} ${v.y}) scale(${v.z})`);
-  $("status-zoom").textContent = `${Math.round(v.z * 100)}%`;
+  const pct = `${Math.round(v.z * 100)}%`;
+  $("status-zoom").textContent = pct;
+  const level = $("zoom-level");
+  level.textContent = pct;
+  level.setAttribute("aria-label", `${pct}, fit the sheet`);
+  $("zoom-out").disabled = v.z <= ZOOM_MIN + 1e-6;
+  $("zoom-in").disabled = v.z >= ZOOM_MAX - 1e-6;
   renderMarkers();
   renderIds();
   renderUI();
@@ -621,7 +679,7 @@ export function zoomBy(factor) {
 }
 
 function zoomAround(mx, my, factor) {
-  const z = Math.max(0.05, Math.min(40, app.view.z * factor));
+  const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, app.view.z * factor));
   const k = z / app.view.z;
   app.view.x = mx - (mx - app.view.x) * k;
   app.view.y = my - (my - app.view.y) * k;
@@ -833,7 +891,7 @@ function labelScene(geo) {
   const rect = svg.getBoundingClientRect();
   const z = app.view.z;
   const toWorldBox = (r) => [(r.left - rect.left - app.view.x) / z, (r.top - rect.top - app.view.y) / z, (r.right - rect.left - app.view.x) / z, (r.bottom - rect.top - app.view.y) / z];
-  const blocked = ["actionbar", "hint"].map($).filter((n) => n && !n.hidden).map((n) => toWorldBox(n.getBoundingClientRect()));
+  const blocked = ["actionbar", "hint", "zoombar"].map($).filter((n) => n && !n.hidden).map((n) => toWorldBox(n.getBoundingClientRect()));
   const lines = [];
   geo.forEach((g, i) => {
     if (g.len > px(2)) lines.push([g.A, g.B, i]);
@@ -945,8 +1003,7 @@ function toolPrompt() {
   const typing = "or type a length (10'6\"), length<angle (8'<90), or right, down (48, 0) and press Enter";
   switch (app.tool) {
     case "select":
-      if (app.selection.size) return "Drag it to move · Ctrl+drag a box to select instead, Shift+drag to add · Shift+click adds or removes one · click a measurement to type it, or drag it aside";
-      return "Click to select · Ctrl+drag a box to select an area (Shift+drag adds) · drag empty space to pan · right-click for actions";
+      return "";
     case "wall":
       return d ? `Click the next corner, ${typing}. Double-click, Enter, or Esc stops.` : "Click the first corner of the wall. Shift keeps it straight.";
     case "polygon":
@@ -1719,7 +1776,8 @@ export async function save(mode = "overwrite", name) {
   if (mode === "overwrite" && s.file === "plan.json" && s.files.some((f) => f !== "plan.json")) {
     if (!confirm("Save over plan.json, the traced base the steps were built from?")) return;
   }
-  await call("/api/save", { mode, name }, { selectRef: false });
+  const state = await call("/api/save", { mode, name }, { selectRef: false });
+  if (!state) toast("Save failed; the reason is in the status bar", true);
 }
 
 export function saveAs() {
@@ -2105,6 +2163,34 @@ $("undo").addEventListener("click", undo);
 $("redo").addEventListener("click", redo);
 $("save").addEventListener("click", () => save("overwrite"));
 $("save-step").addEventListener("click", () => save("step"));
+bindZoomHold($("zoom-out"), 0.8);
+bindZoomHold($("zoom-in"), 1.25);
+$("zoom-level").addEventListener("click", () => fitView());
+
+/** One step on click; hold keeps stepping. Zoom stays centered, unlike the scroll wheel. */
+function bindZoomHold(button, factor) {
+  let delay = 0;
+  let repeat = 0;
+  const stop = () => {
+    clearTimeout(delay);
+    clearInterval(repeat);
+    delay = repeat = 0;
+  };
+  button.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || button.disabled) return;
+    e.preventDefault();
+    zoomBy(factor);
+    delay = setTimeout(() => {
+      repeat = setInterval(() => (button.disabled ? stop() : zoomBy(factor)), 80);
+    }, 400);
+  });
+  button.addEventListener("pointerup", stop);
+  button.addEventListener("pointercancel", stop);
+  button.addEventListener("pointerleave", stop);
+  button.addEventListener("click", (e) => {
+    if (e.detail === 0 && !button.disabled) zoomBy(factor);
+  });
+}
 
 $("show-sheet").addEventListener("change", (e) => {
   app.show.sheet = e.target.checked;
@@ -2136,6 +2222,7 @@ app.show.opacity = Number($("sheet-opacity").value);
 
 initPanels(app);
 initOpen();
+initFloors();
 initCommands();
 initTips();
 setTool("select");

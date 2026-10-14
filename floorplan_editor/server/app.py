@@ -30,8 +30,9 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
-from ..engine import PlanError, draw_png, load_plan, scene, validate_plan
+from ..engine import PlanError, checked, draw_png, is_building, load_plan, scene, validate_plan
 from ..engine.analyze import lookup, stray_bits, wall_groups
+from ..engine.building import FIRST_FLOOR, as_building, export_image, floor_by_id, floor_label, floors_of, next_floor_id
 from ..engine.edit import EditError, apply
 from ..engine.model import FIXTURE_TYPES, LIST_KEYS, compass_from_up
 from ..engine.overlay import apply_erase_regions, overlay_image
@@ -40,16 +41,16 @@ from ..engine.steps import (
     IMAGE_SUFFIXES,
     MERGED_NAME,
     PLAN_RE,
-    STEP_RE,
     find_sheet,
     list_plans,
     load_base,
     merge_folder,
+    newest_plan,
     next_step_name,
     write_outputs,
 )
 from ..engine.trace import TraceSettings, estimate_px_per_inch, trace_walls
-from .flags import FlagError, FlagStore
+from .flags import FlagError, FlagStore, flags_name
 from .projects import (
     PickerUnavailable,
     is_image,
@@ -98,16 +99,16 @@ class Document:
         self.folder = folder
         self.sheet_override = Path(sheet).resolve() if sheet else None
         self.file: str | None = None
-        self.plan: dict | None = None
+        # The whole file: one plan, or a building whose `floors` are plans. `floor` is the one being edited.
+        self.data: dict | None = None
+        self.floor = 0
         self.saved: dict | None = None
-        self.undo: list[dict] = []
-        self.redo: list[dict] = []
+        self.undo: list[tuple[dict, int]] = []
+        self.redo: list[tuple[dict, int]] = []
         self.flags = FlagStore(folder)
         self.bump()
         remember(folder)
-        plans = list_plans(folder)
-        steps = [name for name in plans if STEP_RE.match(name)]
-        start = steps[-1] if steps else (BASE_NAME if BASE_NAME in plans else (plans[-1] if plans else None))
+        start = newest_plan(folder)
         if start:
             self.open_file(start)
 
@@ -116,11 +117,45 @@ class Document:
         if not path.exists():
             raise HTTPException(404, f"{name} not found")
         try:
-            plan = load_plan(path)
+            data = load_plan(path)
         except PlanError as exc:
             raise HTTPException(400, {"errors": exc.errors}) from exc
-        self.file, self.plan, self.saved = name, plan, copy.deepcopy(plan)
+        self.file, self.data, self.saved = name, data, copy.deepcopy(data)
+        self.floor = min(self.floor, len(floors_of(data)) - 1)
         self.undo, self.redo = [], []
+        self._sync_flags()
+        self.bump()
+
+    @property
+    def plan(self) -> dict | None:
+        """The floor being edited (the whole plan, for a one-floor file)."""
+        if self.data is None:
+            return None
+        return self.data["floors"][self.floor] if is_building(self.data) else self.data
+
+    def _with_plan(self, plan: dict) -> dict:
+        if not is_building(self.data):
+            return plan
+        floors = list(self.data["floors"])
+        floors[self.floor] = plan
+        return {**self.data, "floors": floors}
+
+    def _sync_flags(self) -> None:
+        plan = self.plan
+        name = flags_name(plan.get("id") if plan is not None and is_building(self.data) else None)
+        if self.flags.path != self.folder / name:
+            self.flags = FlagStore(self.folder, name)
+
+    def _change(self, data: dict, floor: int | None = None) -> None:
+        """Replace the whole file as one undoable step, optionally moving to another floor."""
+        self.undo.append((self.data, self.floor))
+        del self.undo[:-UNDO_LIMIT]
+        self.redo.clear()
+        self.data = data
+        if floor is not None:
+            self.floor = floor
+        self.floor = max(0, min(self.floor, len(floors_of(data)) - 1))
+        self._sync_flags()
         self.bump()
 
     def _path(self, name: str) -> Path:
@@ -130,6 +165,11 @@ class Document:
 
     @property
     def sheet(self) -> Path | None:
+        plan = self.plan
+        if plan is not None and plan.get("sheet"):
+            return self.folder / plan["sheet"]
+        if is_building(self.data):
+            return None
         return find_sheet(self.folder, self.sheet_override)
 
     def sheet_info(self) -> dict | None:
@@ -162,13 +202,15 @@ class Document:
             width, height = image.size
         scale = float(px_per_inch or 1.0)
         self.file, self.saved = name, None
-        self.plan = {
+        self.data = {
             "name": title or self.folder.name,
             "units": "inches",
             "compass": compass_from_up(up),
             "canvas": {"width_px": width, "height_px": height, "px_per_inch": scale, "origin_px": [0, 0]},
         }
+        self.floor = 0
         self.undo, self.redo = [], []
+        self._sync_flags()
         self.bump()
         if not auto:
             return {}
@@ -196,13 +238,253 @@ class Document:
                 raise HTTPException(400, "plan files are named plan.json or plan-<something>.json")
         else:
             name = self.file or BASE_NAME
-        errors = validate_plan(plan)
+        errors = validate_plan(self.data)
         if errors:
             raise HTTPException(400, {"errors": errors})
-        result = write_outputs(plan, self._path(name), self.sheet, load_base(self.folder))
-        self.file, self.saved = name, copy.deepcopy(plan)
+        result = write_outputs(self.data, self._path(name), self.sheet, load_base(self.folder))
+        self.file, self.saved = name, copy.deepcopy(self.data)
         self.bump()
         return {"files": result.files, "warnings": result.warnings}
+
+    def save_to_folder(self, raw: str) -> dict:
+        """Write the open file as plan.json in a new folder, with its sheet images and flags, and open it there."""
+        self.require_plan()
+        target = Path(str(raw or "").strip().strip('"')).expanduser()
+        if not str(target):
+            raise HTTPException(400, "give the new folder's name or path")
+        if not target.is_absolute():
+            target = self.folder.parent / target
+        target = target.resolve()
+        if target.exists() and (not target.is_dir() or any(target.iterdir())):
+            raise HTTPException(409, f"{target} already has files in it; pick a new folder")
+        errors = validate_plan(self.data)
+        if errors:
+            raise HTTPException(400, {"errors": errors})
+        target.mkdir(parents=True, exist_ok=True)
+        data = copy.deepcopy(self.data)
+        single_sheet = None
+        if is_building(data):
+            for floor in data["floors"]:
+                source = self.folder / floor["sheet"] if floor.get("sheet") else None
+                if source and source.exists():
+                    shutil.copyfile(source, target / floor["sheet"])
+        else:
+            source = self.sheet
+            if source and source.exists():
+                name = data.get("sheet") or (source.name if not source.name.startswith(("plan", "_")) else f"sheet{source.suffix.lower()}")
+                shutil.copyfile(source, target / name)
+                single_sheet = target / name
+        for flags in self.folder.glob("flags*.json"):
+            shutil.copyfile(flags, target / flags.name)
+        result = write_outputs(data, target / BASE_NAME, single_sheet, None)
+        floor = self.floor
+        self.open_folder(target)
+        self.floor = min(floor, len(floors_of(self.data)) - 1)
+        self._sync_flags()
+        return {"folder": str(target), "files": result.files, "warnings": result.warnings}
+
+    def export_jpeg(self) -> dict:
+        """Every floor drawn clean at one scale in one JPEG, top floor first, saved in the folder."""
+        self.require_plan()
+        errors = validate_plan(self.data)
+        if errors:
+            raise HTTPException(400, {"errors": errors})
+        image = export_image(self.data)
+        name = f"{Path(self.file or BASE_NAME).stem}-export.jpg"
+        image.save(self.folder / name, "JPEG", quality=92)
+        return {"file": name, "width": image.width, "height": image.height, "floors": len(floors_of(self.data))}
+
+    # ------------------------------------------------------------ floors
+
+    def switch_floor(self, index: int) -> None:
+        floors = floors_of(self.data)
+        if not floors:
+            raise HTTPException(400, "no plan is open")
+        if not 0 <= index < len(floors):
+            raise HTTPException(400, f"there is no floor {index + 1}; this plan has {len(floors)}")
+        if index != self.floor:
+            self.floor = index
+            self._sync_flags()
+            self.bump()
+
+    def _building(self) -> dict:
+        """The open file as a building, bringing a one-floor plan's sheet into the folder if it lives elsewhere."""
+        data = self.require_plan() if not is_building(self.data) else self.data
+        if is_building(data):
+            return copy.deepcopy(data)
+        sheet_name = data.get("sheet")
+        sheet = self.sheet
+        if not sheet_name and sheet and sheet.exists():
+            sheet_name = sheet.name if sheet.parent == self.folder else self._store_sheet(FIRST_FLOOR, sheet.suffix, sheet.read_bytes())
+        return as_building(data, name=self.folder.name, sheet=sheet_name)
+
+    def _store_sheet(self, floor_id: str, suffix: str, data: bytes) -> str:
+        """Put a floor's sheet image in the folder as <floor id>.png, reusing an identical file."""
+        suffix = suffix.lower() if suffix.lower() in IMAGE_SUFFIXES else ".png"
+        name, n = f"{floor_id}{suffix}", 2
+        while (self.folder / name).exists() and (self.folder / name).read_bytes() != data:
+            name = f"{floor_id}-{n}{suffix}"
+            n += 1
+        if not (self.folder / name).exists():
+            (self.folder / name).write_bytes(data)
+        return name
+
+    def _traced_floor(self, building: dict, image_name: str, data: bytes, name: str | None) -> tuple[dict, dict]:
+        floor_id = next_floor_id(building)
+        sheet = self._store_sheet(floor_id, Path(image_name).suffix, data)
+        with Image.open(self.folder / sheet) as image:
+            width, height = image.size
+        current = self.plan or {}
+        floor = {
+            "id": floor_id,
+            "name": name or _floor_name(image_name, len(building["floors"])),
+            "sheet": sheet,
+            "units": "inches",
+            "compass": copy.deepcopy(current.get("compass") or compass_from_up("north")),
+            "canvas": {"width_px": width, "height_px": height, "px_per_inch": 1.0, "origin_px": [0, 0]},
+        }
+        walls = trace_walls(self.folder / sheet, TraceSettings(), px_per_inch=1.0, origin=(0, 0))
+        guess = estimate_px_per_inch(walls, 1.0)
+        scale = guess or (current.get("canvas") or {}).get("px_per_inch")
+        ops: list[dict] = [{"op": "add_walls", "walls": walls}] if walls else []
+        if scale and scale != 1.0:
+            ops.append({"op": "calibrate", "p1": [0, 0], "p2": [scale, 0], "length": 1})
+        if ops:
+            floor, _ = apply(floor, {"op": "batch", "ops": ops})
+        return floor, {"traced": len(walls), "estimated_px_per_inch": guess}
+
+    def _plan_floors(self, building: dict, incoming: dict, source: Path | None, sheet: tuple[str, bytes] | None) -> list[dict]:
+        """Floors to add from a plan file: every floor of a building, or a one-floor plan, each with its sheet copied in."""
+        try:
+            checked(incoming)
+        except PlanError as exc:
+            raise HTTPException(400, {"errors": exc.errors}) from exc
+        added: list[dict] = []
+        for floor in floors_of(incoming):
+            floor = copy.deepcopy(floor)
+            floor_id = next_floor_id({"floors": building["floors"] + added})
+            image: tuple[str, bytes] | None = None
+            if sheet and not is_building(incoming):
+                image = sheet
+            elif source is not None:
+                path = source / floor["sheet"] if floor.get("sheet") else (None if is_building(incoming) else find_sheet(source))
+                if path and path.exists():
+                    image = (path.name, path.read_bytes())
+            floor.pop("sheet", None)
+            if image:
+                floor["sheet"] = self._store_sheet(floor_id, Path(image[0]).suffix, image[1])
+            floor["id"] = floor_id
+            floor["name"] = floor.get("name") or f"Floor {len(building['floors']) + len(added) + 1}"
+            added.append(floor)
+        return added
+
+    def add_floors(self, *, path: str | None = None, files: list[dict] | None = None, name: str | None = None) -> dict:
+        """Add floors from a floor plan image (traced), a plan .json (one floor or a whole building), or a plan folder."""
+        building = self._building()
+        new: list[dict] = []
+        info: dict = {}
+        if path:
+            source = Path(str(path).strip().strip('"')).expanduser().resolve()
+            if source.is_dir():
+                start = newest_plan(source)
+                if not start:
+                    raise HTTPException(400, f"{source} has no plan files")
+                new = self._plan_floors(building, load_plan(source / start), source, None)
+            elif not source.is_file():
+                raise HTTPException(404, f"{source} not found")
+            elif source.suffix.lower() == ".json":
+                try:
+                    incoming = load_plan(source)
+                except PlanError as exc:
+                    raise HTTPException(400, {"errors": exc.errors}) from exc
+                new = self._plan_floors(building, incoming, source.parent, None)
+            elif is_image(source.name):
+                floor, info = self._traced_floor(building, source.name, source.read_bytes(), name)
+                new = [floor]
+            else:
+                raise HTTPException(400, "add a floor from a .png/.jpg floor plan image, a plan .json, or a plan folder")
+        elif files:
+            images = [f for f in files if is_image(str(f.get("filename", "")))]
+            plans = [f for f in files if str(f.get("filename", "")).lower().endswith(".json")]
+            if plans:
+                try:
+                    incoming = json.loads(base64.b64decode(plans[0]["data"]).decode("utf-8"))
+                except (ValueError, UnicodeDecodeError) as exc:
+                    raise HTTPException(400, f"{plans[0]['filename']} is not JSON: {exc}") from exc
+                if not isinstance(incoming, dict):
+                    raise HTTPException(400, f"{plans[0]['filename']} is not a floor plan")
+                sheet = (images[0]["filename"], base64.b64decode(images[0]["data"])) if images else None
+                new = self._plan_floors(building, incoming, None, sheet)
+            else:
+                traced = 0
+                for image in images:
+                    floor, one = self._traced_floor({"floors": building["floors"] + new}, image["filename"], base64.b64decode(image["data"]), name if len(images) == 1 else None)
+                    new.append(floor)
+                    traced += one["traced"]
+                info = {"traced": traced}
+            if not new:
+                raise HTTPException(400, "drop a .png/.jpg floor plan image or a plan .json")
+        else:
+            raise HTTPException(400, "give a path or files")
+        if name and len(new) == 1:
+            new[0]["name"] = name
+        building["floors"] += new
+        self._change(building, len(building["floors"]) - len(new))
+        names = ", ".join(f["name"] for f in new)
+        message = f"Added {names}"
+        if info.get("traced") is not None:
+            message += f": traced {info['traced']} walls"
+            message += ", scale guessed from wall thickness" if info.get("estimated_px_per_inch") else ""
+            message += ". Check the scale with Scale (K), then Save."
+        else:
+            message += ". Save to keep it."
+        return {"added": [f["id"] for f in new], "message": message, **info}
+
+    def rename_floor(self, index: int, name: str) -> None:
+        name = str(name or "").strip()
+        if not name:
+            raise HTTPException(400, "a floor needs a name")
+        if not is_building(self.data):
+            self.apply_op({"op": "set_meta", "name": name})
+            return
+        building = self._building()
+        self._floor_at(building, index)["name"] = name
+        self._change(building)
+
+    def move_floor(self, index, to) -> None:
+        building = self._building()
+        floors = building["floors"]
+        self._floor_at(building, index)
+        try:
+            to = max(0, min(len(floors) - 1, int(to)))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, "where to? give the new index") from exc
+        floors.insert(to, floors.pop(int(index)))
+        self._change(building, to)
+
+    def delete_floor(self, index) -> None:
+        building = self._building()
+        self._floor_at(building, index)
+        index = int(index)
+        if len(building["floors"]) == 1:
+            raise HTTPException(400, "that's the only floor; a plan needs at least one")
+        building["floors"].pop(index)
+        self._change(building, min(self.floor if self.floor < index else self.floor - 1, len(building["floors"]) - 1))
+
+    def set_building(self, name: str) -> None:
+        building = self._building()
+        building["name"] = str(name or "").strip() or self.folder.name
+        self._change(building)
+
+    @staticmethod
+    def _floor_at(building: dict, index) -> dict:
+        try:
+            index = int(index)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, "which floor? give its index") from exc
+        if not 0 <= index < len(building["floors"]):
+            raise HTTPException(400, f"there is no floor {index + 1}")
+        return building["floors"][index]
 
     def _new_project_from_image(self, folder: Path, image_name: str, data: bytes | None = None, source: Path | None = None) -> dict:
         folder.mkdir(parents=True, exist_ok=True)
@@ -283,7 +565,7 @@ class Document:
                 plan = json.loads(base64.b64decode(plans[0]["data"]).decode("utf-8"))
             except (ValueError, UnicodeDecodeError) as exc:
                 raise HTTPException(400, f"{plans[0]['filename']} is not JSON: {exc}") from exc
-            if not isinstance(plan, dict) or "canvas" not in plan:
+            if not isinstance(plan, dict) or ("canvas" not in plan and not is_building(plan)):
                 raise HTTPException(400, f"{plans[0]['filename']} is not a floor plan (it has no canvas)")
         if images:
             image = images[0]
@@ -307,14 +589,17 @@ class Document:
             self.open_folder(folder, sheet)
             return {"how": "plan_and_image", "folder": str(folder), "message": f"Opened {plans[0]['filename']} over {image['filename']} in {folder}"}
         filename = plans[0]["filename"]
-        canvas = plan["canvas"]
-        size = (int(round(canvas.get("width_px", 0))), int(round(canvas.get("height_px", 0))))
         for name in list_plans(self.folder):
             if load_plan(self.folder / name) == plan:
                 self.open_file(name)
                 return {"how": "plan", "message": f"{filename} is the same as {name}; opened it"}
-        sheet = self.sheet_info()
-        fits = (sheet and (sheet["width"], sheet["height"]) == size) or (not sheet and not list_plans(self.folder))
+        if is_building(plan):
+            fits = not list_plans(self.folder)
+        else:
+            canvas = plan["canvas"]
+            size = (int(round(canvas.get("width_px", 0))), int(round(canvas.get("height_px", 0))))
+            sheet = self.sheet_info()
+            fits = (sheet and (sheet["width"], sheet["height"]) == size) or (not sheet and not list_plans(self.folder))
         if fits:
             name = self._plan_name_for(filename)
             (self.folder / name).write_text(json.dumps(plan, indent=2), encoding="utf-8")
@@ -354,19 +639,16 @@ class Document:
             raise HTTPException(400, str(exc)) from exc
         except (KeyError, TypeError, ValueError) as exc:
             raise HTTPException(400, f"{op.get('op')}: {exc}") from exc
-        self.undo.append(plan)
-        del self.undo[:-UNDO_LIMIT]
-        self.redo.clear()
-        self.plan = new
-        self.bump()
+        self._change(self._with_plan(new))
         return ref
 
     def step_back(self, forward: bool) -> bool:
         source, target = (self.redo, self.undo) if forward else (self.undo, self.redo)
         if not source:
             return False
-        target.append(self.plan)
-        self.plan = source.pop()
+        target.append((self.data, self.floor))
+        self.data, self.floor = source.pop()
+        self._sync_flags()
         self.bump()
         return True
 
@@ -377,11 +659,12 @@ class Document:
         errors: list[str] = []
         ops: list[dict] = []
         if plan is not None:
-            errors = validate_plan(plan)
+            errors = validate_plan(self.data)
             try:
                 ops = scene(plan)
             except (KeyError, TypeError, ValueError) as exc:
                 errors.append(f"cannot draw the plan: {exc}")
+        building = is_building(self.data)
         return {
             "version": self.version,
             "folder": str(self.folder),
@@ -389,9 +672,15 @@ class Document:
             "files": list_plans(self.folder),
             "next_step": next_step_name(self.folder),
             "plan": plan,
+            "floor": self.floor,
+            "floors": [
+                {"index": i, "id": f.get("id"), "name": floor_label(f, i), "sheet": f.get("sheet")}
+                for i, f in enumerate(floors_of(self.data))
+            ],
+            "building": {"name": self.data.get("name") or self.folder.name} if building else None,
             "scene": ops,
             "errors": errors,
-            "dirty": plan is not None and plan != self.saved,
+            "dirty": self.data is not None and self.data != self.saved,
             "can_undo": bool(self.undo),
             "can_redo": bool(self.redo),
             "sheet": self.sheet_info(),
@@ -403,6 +692,11 @@ class Document:
             "recent": recent_folders(),
             **extra,
         }
+
+
+def _floor_name(image_name: str, count: int) -> str:
+    stem = Path(image_name).stem.strip()
+    return stem[:1].upper() + stem[1:] if stem else f"Floor {count + 1}"
 
 
 def _settings(body: dict) -> TraceSettings:
@@ -485,7 +779,7 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
 
     @app.post("/api/pick")
     def pick(body: dict = Body(default={})):
-        """Show the system's open dialog, then open what was picked."""
+        """Show the system's open dialog, then open what was picked (or with path_only, just say what it was)."""
         kind = "folder" if body.get("kind") == "folder" else "file"
         try:
             path = native_pick(kind, str(doc.folder))
@@ -493,9 +787,49 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
             raise HTTPException(501, f"no file dialog here ({exc}); drop the file on the page instead") from exc
         if not path:
             return {"cancelled": True}
+        if body.get("path_only"):
+            return {"path": path}
         with doc.lock:
             info = doc.open_path(path)
             return doc.state(opened=info)
+
+    @app.post("/api/floor")
+    def switch_floor(body: dict = Body(...)):
+        """Edit another floor of the open file: {index} counts from 0 at the bottom floor."""
+        with doc.lock:
+            try:
+                index = int(body["index"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise HTTPException(400, "give the floor's index") from exc
+            doc.switch_floor(index)
+            return doc.state()
+
+    @app.post("/api/floors")
+    def floors(body: dict = Body(...)):
+        """Change the file's floors, each one undoable step: add (path or files, optional name),
+        rename (index, name), move (index, to), delete (index), or building (name)."""
+        action = body.get("action")
+        with doc.lock:
+            info: dict = {}
+            if action == "add":
+                info = doc.add_floors(path=body.get("path"), files=body.get("files"), name=body.get("name"))
+            elif action == "rename":
+                doc.rename_floor(body.get("index"), body.get("name"))
+            elif action == "move":
+                doc.move_floor(body.get("index"), body.get("to"))
+            elif action == "delete":
+                doc.delete_floor(body.get("index"))
+            elif action == "building":
+                doc.set_building(body.get("name"))
+            else:
+                raise HTTPException(400, "action must be add, rename, move, delete, or building")
+            return doc.state(floors_changed=info)
+
+    @app.post("/api/export")
+    def export():
+        """Write <file>-export.jpg: every floor drawn clean at one scale, top floor first."""
+        with doc.lock:
+            return doc.state(exported=doc.export_jpeg())
 
     @app.post("/api/flags")
     def flags(body: dict = Body(...)):
@@ -548,6 +882,9 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
     @app.post("/api/save")
     def save(body: dict = Body(default={})):
         with doc.lock:
+            if body.get("mode") == "folder":
+                saved = doc.save_to_folder(body.get("path") or body.get("name"))
+                return doc.state(saved=saved)
             saved = doc.save_plan(body.get("mode", "overwrite"), body.get("name"))
             return doc.state(saved=saved)
 
@@ -592,7 +929,7 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
                 raise HTTPException(404, "no sheet image in this folder")
             base = load_base(doc.folder) if doc.file != BASE_NAME else None
             try:
-                return _png(overlay_image(plan, sheet, base))
+                return _png(overlay_image(plan, sheet, floor_by_id(base, plan.get("id"))))
             except PlanError as exc:
                 raise HTTPException(400, {"errors": exc.errors}) from exc
 

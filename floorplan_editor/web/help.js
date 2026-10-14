@@ -19,12 +19,13 @@ export const HELP = {
   },
   "open-more": { tip: "Recent folders, a typed path, or the browser's own file picker" },
   "tool-select": {
-    tip: "Select, move, and reshape",
+    tip: "Click to select. Ctrl+drag a box to select an area (Shift+drag adds). Drag empty space to pan. Right-click for actions.",
     keys: "V",
     more: [
       "Click an object to select it; Shift+click or Ctrl+click adds or removes one. Click empty space to clear the selection.",
       "Ctrl+drag draws a box to select an area, starting anywhere, even on top of walls. Shift+drag adds the box to the selection. Left to right selects what's fully inside; right to left selects anything the box touches.",
       "Drag an object to move it (and everything else selected). Drag empty space to pan. Drag the round handles to reshape: wall ends, door edges, corners. Double-click a wall to split it.",
+      "Click a measurement to type it, or drag it aside.",
     ],
   },
   "tool-wall": {
@@ -85,7 +86,7 @@ export const HELP = {
     tip: "Drop a numbered flag to point Cursor at a spot or area",
     keys: "F",
     more: [
-      "Click to drop a flag, or drag to flag an area. Add a note (\"make this toilet 2 inches narrower\"), then tell Cursor \"do what F3 says\" instead of describing where things are.",
+      "Click to drop a flag, or drag to flag an area. Add a note (\"make this toilet 2 inches narrower\"), then tell Cursor \"do what F3 says\" instead of describing where things are. Cancel the note, or leave it blank, and the new flag is removed.",
       "Cursor sees each flag's note, place, and what it sits on, and can drop its own flags to show you what it means. Flags are kept with the folder, never in a plan.",
     ],
   },
@@ -108,6 +109,21 @@ export const HELP = {
   "empty-browse": { tip: "Pick files with the browser's own picker, when the system dialog can't open" },
   "empty-sheet": { tip: "Make a new plan.json for the image in this folder and trace its walls" },
   fit: { tip: "Fit the whole sheet in view", keys: "0" },
+  "zoom-out": {
+    tip: "Zoom out, centered on the view",
+    keys: "−",
+    more: ["Each click steps out. Hold the button to keep going. The scroll wheel still zooms toward the pointer."],
+  },
+  "zoom-in": {
+    tip: "Zoom in, centered on the view",
+    keys: "+",
+    more: ["Each click steps in. Hold the button to keep going. The scroll wheel still zooms toward the pointer."],
+  },
+  "zoom-level": {
+    tip: "Fit the whole sheet",
+    keys: "0",
+    more: ["The number is the current zoom. 100% is one sheet pixel per screen pixel. Click it to fit the sheet in the window."],
+  },
   "copy-ids": { tip: "Copy the selected ids, to name them to Cursor", keys: "Ctrl+Shift+C" },
 
   // ---------------------------------------------------------------- selection actions
@@ -127,6 +143,10 @@ export const HELP = {
   thickness: {
     tip: "Set one thickness for the selected walls",
     more: ["Type the thickness. The side panel has the same field with Stays put, which picks the face that holds still (top or bottom, left or right), so a wall can thicken into one room without moving its other side."],
+  },
+  "glass-rail": {
+    tip: "Draw the selected walls as glass railings",
+    more: ["A glass rail is drawn as a thin outline with a line down the middle instead of a solid wall. Draw it with the Wall tool, then tick this. Untick to make it a solid wall again."],
   },
   "move-by": { more: ["Type how far to move: 6, -18 is 6 inches right and 18 up, and 3'<90 is 3 feet at 90° (straight up). The arrow keys nudge 1 inch (Shift 12, Alt ¼)."] },
   split: { tip: "Split the wall into two at its middle", more: ["Double-clicking a wall splits it right where you click."] },
@@ -182,6 +202,13 @@ export const HELP = {
     ],
   },
   "save-as": { tip: "Save under a new file name" },
+  "save-folder": {
+    tip: "Copy this file into a new folder as plan.json, with every floor's sheet image",
+    more: [
+      "Type a name (it becomes a folder next to this one) or a full path. The folder must be new or empty. Flags come along too, and the editor opens the new folder.",
+      "One file can hold a whole building: add floors with + Floor on the bar over the drawing, and flip between them with PageUp and PageDown.",
+    ],
+  },
   revert: { tip: "Throw away unsaved edits and reload the saved file" },
   "view-overlay": { tip: "Open the open file drawn in red over the sheet, in a new tab", more: ["The overlay is the quickest check that the plan sits on the drawing. It's saved next to each plan as -overlay.png, with erase regions applied."] },
   "new-plan": { tip: "Start a plan from an image with your own settings", more: ["Usually you don't need this: Open an image and it's set up and traced for you. Use this to choose which way is up, give a known scale, or skip tracing."] },

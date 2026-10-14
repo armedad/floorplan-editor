@@ -12,6 +12,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 FLAGS_NAME = "flags.json"
+FIRST_FLOOR = "floor-1"
+
+
+def flags_name(floor_id: str | None) -> str:
+    """Each floor of a building keeps its own flags; the first floor shares flags.json with the
+    one-floor plan it grew from."""
+    if not floor_id or floor_id == FIRST_FLOOR:
+        return FLAGS_NAME
+    return f"flags-{floor_id}.json"
 
 
 class FlagError(ValueError):
@@ -19,8 +28,8 @@ class FlagError(ValueError):
 
 
 class FlagStore:
-    def __init__(self, folder: Path):
-        self.path = Path(folder) / FLAGS_NAME
+    def __init__(self, folder: Path, name: str = FLAGS_NAME):
+        self.path = Path(folder) / name
         self.flags: list[dict] = []
         self.next = 1
         if self.path.exists():

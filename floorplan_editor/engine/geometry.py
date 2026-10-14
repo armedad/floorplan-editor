@@ -28,12 +28,6 @@ def unit(wall: dict) -> tuple[float, float]:
     )
 
 
-def perp(ux: float, uy: float, swing: str) -> tuple[float, float]:
-    if swing == "cw":
-        return (-uy, ux)
-    return (uy, -ux)
-
-
 def rect_polygon(x: float, y: float, w: float, h: float) -> list[tuple[float, float]]:
     return [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
 

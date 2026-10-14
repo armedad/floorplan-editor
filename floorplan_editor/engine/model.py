@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 
 from .geometry import wall_length
@@ -22,11 +23,15 @@ FIXTURE_TYPES = (
     "toilet",
     "tub",
     "soaking_tub",
+    "shower",
     "sink",
     "washer",
     "dryer",
     "washer_dryer",
     "stool",
+    "fireplace",
+    "cabinet",
+    "upper_cabinet",
     "generic",
 )
 FIXTURE_LABELS = {
@@ -36,7 +41,9 @@ FIXTURE_LABELS = {
     "washer": "W",
     "dryer": "D",
     "washer_dryer": "W/D",
+    "upper_cabinet": "UPPER",
 }
+WALL_KINDS = ("glass_rail",)
 ID_KEYS = ("walls", "openings", "counters", "fixtures", "erase")
 LIST_KEYS = ID_KEYS + ("labels",)
 COMMENTED = {"comments"}
@@ -167,14 +174,56 @@ def _box(obj: dict, path: str, errors: list[str]) -> None:
             errors.append(f"{path}.{key} must be > 0")
 
 
+SHEET_NAME = re.compile(r"^[\w.() -]+\.(png|jpe?g)$", re.IGNORECASE)
+
+
+def is_building(data) -> bool:
+    """A plan file holding several floors, each a plan of its own."""
+    return isinstance(data, dict) and "floors" in data
+
+
 def validate_plan(plan: dict) -> list[str]:
+    if is_building(plan):
+        return validate_building(plan)
+    return _validate_floor(plan)
+
+
+def validate_building(data: dict) -> list[str]:
     errors: list[str] = []
-    _fields(plan, {"units", "compass", "canvas"}, set(LIST_KEYS) | {"name", "notes"}, "plan", errors)
+    _fields(data, {"floors"}, {"name", "notes"}, "plan", errors)
+    for key in ("name", "notes"):
+        if key in data and not isinstance(data[key], str):
+            errors.append(f"plan.{key} must be a string")
+    floors = data.get("floors")
+    if not isinstance(floors, list) or not floors:
+        errors.append("plan.floors must list at least one floor")
+        return errors
+    seen: dict[str, int] = {}
+    for i, floor in enumerate(floors):
+        path = f"plan.floors[{i}]"
+        if not isinstance(floor, dict):
+            errors.append(f"{path} must be an object")
+            continue
+        floor_id = _str(floor.get("id"), f"{path}.id", errors)
+        if floor_id is not None:
+            if floor_id in seen:
+                errors.append(f"{path}.id duplicates plan.floors[{seen[floor_id]}]")
+            seen[floor_id] = i
+        errors += [path + e[len("plan"):] if e.startswith("plan") else f"{path}: {e}" for e in _validate_floor(floor, floor=True)]
+    return errors
+
+
+def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
+    errors: list[str] = []
+    optional = set(LIST_KEYS) | {"name", "notes", "sheet"} | ({"id"} if floor else set())
+    _fields(plan, {"units", "compass", "canvas"}, optional, "plan", errors)
     if plan.get("units") != "inches":
         errors.append("plan.units must be 'inches'")
     for key in ("name", "notes"):
         if key in plan and not isinstance(plan[key], str):
             errors.append(f"plan.{key} must be a string")
+    if "sheet" in plan and not (isinstance(plan["sheet"], str) and SHEET_NAME.match(plan["sheet"])):
+        errors.append("plan.sheet must be the name of a .png or .jpg in the plan's folder")
 
     compass = plan.get("compass")
     if not isinstance(compass, dict):
@@ -221,8 +270,10 @@ def validate_plan(plan: dict) -> list[str]:
         if not isinstance(wall, dict):
             errors.append(f"{path} must be an object")
             continue
-        _fields(wall, {"id", "x1", "y1", "x2", "y2", "thickness"}, COMMENTED, path, errors)
+        _fields(wall, {"id", "x1", "y1", "x2", "y2", "thickness"}, {"kind"} | COMMENTED, path, errors)
         wall_id = take_id(wall.get("id"), f"{path}.id")
+        if "kind" in wall and wall["kind"] not in WALL_KINDS:
+            errors.append(f"{path}.kind must be one of {', '.join(WALL_KINDS)}")
         coords = [_num(wall.get(k), f"{path}.{k}", errors) for k in ("x1", "y1", "x2", "y2")]
         thickness = _num(wall.get("thickness"), f"{path}.thickness", errors)
         if None not in coords and math.hypot(coords[2] - coords[0], coords[3] - coords[1]) <= 0:

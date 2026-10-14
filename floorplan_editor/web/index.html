@@ -12,7 +12,7 @@
         <button id="open-more" class="primary" title="Recent folders and other ways to open" aria-label="more ways to open">▾</button>
       </div>
       <div class="group" id="tools" role="toolbar" aria-label="tools">
-        <button id="tool-select" data-tool="select" title="Select and move; Ctrl+drag selects an area, dragging empty space pans (V)">Select <kbd>V</kbd></button>
+        <button id="tool-select" data-tool="select" title="Click to select. Ctrl+drag a box to select an area (Shift+drag adds). Drag empty space to pan. Right-click for actions.">Select <kbd>V</kbd></button>
         <button id="tool-wall" data-tool="wall" title="Draw walls: click each corner, or type lengths (W)">Wall <kbd>W</kbd></button>
         <button id="tool-door" data-tool="door" title="Click a wall to add a door (D)">Door <kbd>D</kbd></button>
         <button id="tool-window" data-tool="window" title="Click a wall to add a window (N)">Window <kbd>N</kbd></button>
@@ -49,8 +49,14 @@
             <g id="ui-layer"></g>
           </g>
         </svg>
+        <div id="floorbar" hidden></div>
         <div id="hint" hidden></div>
         <div id="actionbar" role="toolbar" aria-label="actions for the selection" hidden></div>
+        <div id="zoombar" role="group" aria-label="Zoom" hidden>
+          <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+          <button type="button" id="zoom-level">100%</button>
+          <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+        </div>
         <div id="empty" hidden>
           <div class="empty-card">
             <h1>Open a floor plan</h1>
@@ -98,6 +104,7 @@
           <div class="row wrap">
             <button id="merge">Merge checked</button>
             <button id="save-as">Save as…</button>
+            <button id="save-folder" title="Copy this file, with every floor and its sheet images, into a new folder">Save to a new folder…</button>
             <button id="revert">Revert</button>
             <button id="view-overlay">View overlay</button>
             <button id="new-plan">New plan (manual setup)…</button>
@@ -148,6 +155,7 @@
       <span id="status-file"></span>
     </footer>
 
+    <div id="toast" role="status" aria-live="polite"></div>
     <div id="menu" role="menu" hidden></div>
     <div id="tip" role="tooltip" hidden></div>
     <div id="pop-shield" hidden></div>
@@ -159,6 +167,7 @@
       </div>
     </div>
     <input type="file" id="upload" accept=".json,.png,.jpg,.jpeg" multiple hidden />
+    <input type="file" id="floor-upload" accept=".json,.png,.jpg,.jpeg" multiple hidden />
 
     <dialog id="new-dialog">
       <form method="dialog" id="new-form">

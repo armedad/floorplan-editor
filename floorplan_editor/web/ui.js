@@ -103,17 +103,19 @@ export function popInput({ x, y, label, value = "", hint = "", choices = null, c
       )
     : null;
   pop.replaceChildren(
-    el("label", { class: "pop-label" }, label || ""),
-    el("div", { class: "pop-row" }, input),
-    row,
-    hint ? el("div", { class: "pop-hint" }, hint) : null,
-    warn,
-    el(
-      "div",
-      { class: "pop-buttons" },
-      el("button", { type: "button", title: "Close without changing anything (Esc)", on: { click: () => finish(false) } }, "Cancel"),
-      el("button", { type: "button", class: "primary", title: "Save (Enter)", on: { click: () => finish(true) } }, "Save"),
-    ),
+    ...[
+      el("label", { class: "pop-label" }, label || ""),
+      el("div", { class: "pop-row" }, input),
+      row,
+      hint ? el("div", { class: "pop-hint" }, hint) : null,
+      warn,
+      el(
+        "div",
+        { class: "pop-buttons" },
+        el("button", { type: "button", title: "Close without changing anything (Esc)", on: { click: () => finish(false) } }, "Cancel"),
+        el("button", { type: "button", class: "primary", title: "Save (Enter)", on: { click: () => finish(true) } }, "Save"),
+      ),
+    ].filter(Boolean),
   );
   pop.hidden = false;
   const w = pop.offsetWidth;
