@@ -7,7 +7,7 @@ name = "floorplan-editor"
 version = "0.1.0"
 description = "Edit architectural floor plans as JSON (walls, doors, counters, fixtures) in a local browser editor, and render SVG, PNG, and overlays on the source sheet."
 readme = "README.md"
-license = {file = "LICENSE"}
+license = "GPL-3.0-only"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.110",
