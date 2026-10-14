@@ -582,6 +582,8 @@ and `--no-walls` makes an empty plan.
 C:\Users\CheeC\code\.venv\Scripts\python.exe -m pytest
 ```
 
+`tests/test_regression.py` tries every edit operation, the read-only API, and the colors in a saved picture, and fails if an operation is added or removed without a case. `tests/web/regression.test.mjs` covers snapping, axis lock, and clicking an object.
+
 - The engine lives in `floorplan_editor/engine`: schema, rendering, overlays, merging,
   edit operations, step folders, and tracing. `analyze.py` finds stacked walls, stray bits,
   and doorway gaps; the `convert`, `merge_walls`, `merge_stacked`, and `set_wall_thickness`
