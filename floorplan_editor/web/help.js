@@ -82,6 +82,15 @@ export const HELP = {
     keys: "K",
     more: ["Click both ends of a dimension printed on the sheet (a room's width, say), then type that length, such as 26'5\". This sets how many sheet pixels make an inch, so every size you see and type is right. Check it after tracing a new image."],
   },
+  "tool-measure": {
+    tip: "Measure a distance, or the gap to the nearest edges",
+    keys: "M",
+    more: [
+      "Drag to measure. Each end snaps to the nearest wall, counter, or fixture, and the line straightens when it is close to horizontal or vertical.",
+      "Move the pointer and dotted lines show the distance to the first edge in each direction. Click without dragging to keep the horizontal and vertical ones.",
+      "Drag an endpoint to move that end. Drag the line, or the handle in the middle, to move both ends together. M is Measure when nothing is selected, and Move… when something is.",
+    ],
+  },
   "tool-flag": {
     tip: "Drop a numbered flag to point Cursor at a spot or area",
     keys: "F",

@@ -210,6 +210,11 @@ pastes at the pointer.
   moved, resized, or deleted later.
 - **Scale (K).** Click both ends of a length printed on the sheet, then type that length,
   such as `26'5"`. This sets how many sheet pixels make an inch.
+- **Measure (M).** Drag to measure a distance. Each end snaps to the nearest wall, counter,
+  or fixture, and the line straightens when it is close to horizontal or vertical. Moving
+  the pointer shows a dotted line to the first edge in each direction; a click keeps the
+  horizontal and vertical ones. Drag an end to move that end, or the middle to slide the
+  whole line. M measures when nothing is selected, and moves the selection when something is.
 - **Flag (F).** Drop a numbered flag; see the next section.
 
 Snapping is on by default. Points snap to wall ends and wall faces, then to a 1-inch grid.
@@ -378,7 +383,7 @@ Ctrl+K shows all of these, searchable.
 
 | Key | Action |
 | --- | --- |
-| V, W, D, N, C, P, X, T, E, K, F | Select, Wall, Door, Window, Counter, Outline, Fixture, Label, Erase, Scale, Flag |
+| V, W, D, N, C, P, X, T, E, K, M, F | Select, Wall, Door, Window, Counter, Outline, Fixture, Label, Erase, Scale, Measure, Flag |
 | Ctrl+O | Open a plan, folder, or image |
 | Ctrl+S, Ctrl+Shift+S | Save, save as the next step |
 | PageUp, PageDown | Go up or down a floor |
@@ -389,7 +394,7 @@ Ctrl+K shows all of these, searchable.
 | Ctrl+D | Duplicate the selection |
 | Ctrl+C, Ctrl+V | Copy, paste at the pointer |
 | Enter | Type the selection's size (or a flag's note); finish an outline or a run of walls |
-| M | Move the selection by an exact distance |
+| M | Measure when nothing is selected; move the selection by an exact distance when something is |
 | Arrow keys | Nudge the selection 1″ (Shift: 12″, Alt: ¼″) |
 | Digits while drawing | Type the next wall length, a counter's size, or a door's width |
 | R | Rotate the selected fixture 90° (Shift+R the other way), or the next fixture to place |

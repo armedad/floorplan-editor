@@ -9,6 +9,7 @@ import {
   Canvas,
   arcPath,
   formatLength,
+  distSeg,
   hitArea,
   indexScene,
   lockAxis,
@@ -22,6 +23,7 @@ import {
   wallLength,
 } from "./geom.js";
 import { dimsFor, opForDim } from "./measure.js";
+import { clickMeasures, placePoint, rayHits, tapeEdges } from "./tape.js";
 import { initOpen, renderEmpty } from "./open.js";
 import { loadSheetInk, placeLabels } from "./placement.js";
 import { initPanels, renderFiles, renderProps } from "./panels.js";
@@ -64,7 +66,7 @@ const ZOOM_MIN = 0.05;
 const ZOOM_MAX = 40;
 const RED = "#c40000";
 const RED_FILL = "rgba(196,0,0,0.43)";
-const TOOLS = new Set(["select", "wall", "door", "window", "counter", "polygon", "fixture", "label", "erase", "calibrate", "flag"]);
+const TOOLS = new Set(["select", "wall", "door", "window", "counter", "polygon", "fixture", "label", "erase", "calibrate", "measure", "flag"]);
 const TYPABLE = /^[0-9.'"<(\-]$/;
 
 export const app = {
@@ -319,6 +321,10 @@ export function describeKey(key) {
   if (kind === "fixtures") return named(o ? o.type.replace(/_/g, " ") : "fixture", id);
   if (kind === "labels") return o ? `label “${o.text}”` : `label ${id}`;
   if (kind === "erase") return `erase region ${id}`;
+  if (kind === "measures") {
+    const len = o ? formatLength(Math.hypot(o.x2 - o.x1, o.y2 - o.y1)) : "";
+    return len ? `measure ${id} · ${len}` : `measure ${id}`;
+  }
   if (kind === "flags") return `flag ${id}`;
   return key;
 }
@@ -509,6 +515,7 @@ function sheetOn() {
 }
 
 function colors(op) {
+  if (op.role === "measure") return { stroke: op.stroke || "#00897b", fill: op.fill || "#00695c" };
   if (!sheetOn()) return { stroke: op.stroke, fill: op.fill };
   if (op.op === "text") return { fill: RED };
   return { stroke: RED, fill: op.role === "wall" ? RED_FILL : null };
@@ -522,10 +529,20 @@ function opMarkup(op) {
     return `<polygon${cls} points="${pts}" fill="${c.fill || "none"}" stroke="${c.stroke}" stroke-width="${op.width}" stroke-linejoin="miter"/>`;
   }
   if (op.op === "line") {
-    return `<line x1="${f2(op.a[0])}" y1="${f2(op.a[1])}" x2="${f2(op.b[0])}" y2="${f2(op.b[1])}" stroke="${c.stroke}" stroke-width="${op.width}"/>`;
+    const width = op.role === "measure" ? px(1.5) : op.width;
+    return `<line x1="${f2(op.a[0])}" y1="${f2(op.a[1])}" x2="${f2(op.b[0])}" y2="${f2(op.b[1])}" stroke="${c.stroke}" stroke-width="${width}"/>`;
   }
   if (op.op === "arc") return `<path d="${arcPath(op)}" fill="none" stroke="${c.stroke}" stroke-width="${op.width}"/>`;
-  return `<text x="${f2(op.at[0])}" y="${f2(op.at[1])}" fill="${c.fill}" font-size="${op.size.toFixed(1)}" text-anchor="middle" dominant-baseline="middle">${esc(op.text)}</text>`;
+  let x = op.at[0];
+  let y = op.at[1];
+  let size = op.size;
+  if (op.role === "measure" && op.normal) {
+    const gap = op.gap || 0;
+    x = op.at[0] - op.normal[0] * gap + op.normal[0] * px(14);
+    y = op.at[1] - op.normal[1] * gap + op.normal[1] * px(14);
+    size = px(13);
+  }
+  return `<text x="${f2(x)}" y="${f2(y)}" fill="${c.fill}" font-size="${size.toFixed(1)}" text-anchor="middle" dominant-baseline="middle">${esc(op.text)}</text>`;
 }
 
 function renderSheet() {
@@ -771,6 +788,10 @@ function handlesFor(key) {
     const off = obj.h / 2 + px(22) / c.scale;
     const [tx, ty] = rotate(0, -off, rot);
     hs.push({ type: "fix-rotate", at: c.pt(obj.x + tx, obj.y + ty), cls: "rotate" });
+  } else if (kind === "measures") {
+    hs.push({ type: "measure-end", end: "start", at: c.pt(obj.x1, obj.y1) });
+    hs.push({ type: "measure-end", end: "end", at: c.pt(obj.x2, obj.y2) });
+    hs.push({ type: "measure-body", at: c.pt((obj.x1 + obj.x2) / 2, (obj.y1 + obj.y2) / 2), cls: "mid" });
   }
   return hs;
 }
@@ -922,7 +943,9 @@ export function renderUI() {
   parts.push(dimsMarkup());
   if (ghost) parts.push(ghost);
   const single = app.selection.size === 1 && !app.sel.startsWith("flags:");
-  app.handles = app.tool === "select" && single && !(d && (d.type === "move" || d.type === "marquee")) ? handlesFor(app.sel) : [];
+  const measuring = app.tool === "measure" && single && app.sel.startsWith("measures:");
+  const hideHandles = d && (d.type === "move" || d.type === "marquee" || d.type === "measure" || d.type === "measure-slide");
+  app.handles = (app.tool === "select" || measuring) && single && !hideHandles ? handlesFor(app.sel) : [];
   app.handles.forEach((h, i) => {
     const [x, y] = h.at;
     const name = esc(`${h.type} ${h.end || h.which || (h.index ?? h.corner ?? "")} handle`.replace(/\s+/g, " "));
@@ -931,7 +954,7 @@ export function renderUI() {
     );
   });
   const snap = (d && d.snap) || (app.cursor && app.cursor.snap);
-  if (snap && (snap.kind === "endpoint" || snap.kind === "wall")) {
+  if (snap && (snap.kind === "endpoint" || snap.kind === "wall" || snap.kind === "edge")) {
     const [sx, sy] = app.canvas.pt(snap.x, snap.y);
     const s = px(7);
     parts.push(`<rect class="snap-mark" x="${f2(sx - s)}" y="${f2(sy - s)}" width="${2 * s}" height="${2 * s}" stroke-width="${sw}"/>`);
@@ -960,6 +983,51 @@ function lineGhost(a, b, thicknessIn, label) {
   let s = `<line class="ghost-line" x1="${f2(ax)}" y1="${f2(ay)}" x2="${f2(bx)}" y2="${f2(by)}" stroke-width="${w}"/>`;
   if (label) s += measureText((ax + bx) / 2, (ay + by) / 2, label);
   return s;
+}
+
+function tapeLine(a, b) {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  return lineGhost(a, b, 0, formatLength(len)).replace("ghost-line", "tape");
+}
+
+function tapeTol() {
+  return px(12) / app.canvas.scale;
+}
+
+function straightDelta(dx, dy, tol) {
+  if (Math.abs(dy) <= tol && Math.abs(dy) <= Math.abs(dx)) return [dx, 0];
+  if (Math.abs(dx) <= tol && Math.abs(dx) < Math.abs(dy)) return [0, dy];
+  return [dx, dy];
+}
+
+function rayGhost(x, y) {
+  const hits = rayHits(tapeEdges(app.plan), x, y);
+  return ["left", "right", "up", "down"]
+    .map((dir) => (hits[dir] ? tapeLine([x, y], [hits[dir].x, hits[dir].y]) : ""))
+    .join("");
+}
+
+/** A measure under the pointer: an endpoint first, otherwise the line itself. */
+function measureAt(wx, wy) {
+  const [x, y] = app.canvas.toIn(wx, wy);
+  const endTol = px(10) / app.canvas.scale;
+  let end = null;
+  for (const obj of app.plan.measures || []) {
+    for (const which of ["start", "end"]) {
+      const ex = which === "start" ? obj.x1 : obj.x2;
+      const ey = which === "start" ? obj.y1 : obj.y2;
+      const d = Math.hypot(ex - x, ey - y);
+      if (d <= endTol && (!end || d < end.d)) end = { d, which, obj };
+    }
+  }
+  if (end) return { type: "end", end: end.which, obj: end.obj };
+  const lineTol = px(6) / app.canvas.scale;
+  let body = null;
+  for (const obj of app.plan.measures || []) {
+    const d = distSeg(x, y, obj.x1, obj.y1, obj.x2, obj.y2);
+    if (d <= lineTol && (!body || d < body.d)) body = { d, obj };
+  }
+  return body ? { type: "body", obj: body.obj } : null;
 }
 
 function polyGhost(pointsIn, closed = true) {
@@ -1023,7 +1091,9 @@ function toolPrompt() {
     case "calibrate":
       return d ? "Click the other end. Shift keeps it straight." : "Click one end of a length printed on the sheet (a wall dimension), then the other end.";
     case "flag":
-      return "Click to drop a flag, or drag to flag an area. Then refer to it in Cursor by number (F1, F2…). Esc stops.";
+      return "";
+    case "measure":
+      return "";
   }
   return "";
 }
@@ -1315,6 +1385,36 @@ async function toolDown(e) {
     const [p1] = app.draft.pts;
     app.draft = null;
     askCalibration(p1, pt);
+    return;
+  }
+  if (tool === "measure") {
+    const handleIndex = e.target.dataset ? e.target.dataset.h : undefined;
+    if (handleIndex !== undefined && app.handles[Number(handleIndex)]) {
+      startHandleDrag(e, app.handles[Number(handleIndex)]);
+      return;
+    }
+    const [wx, wy] = toWorld(e);
+    const hit = measureAt(wx, wy);
+    if (hit) {
+      select(`measures:${hit.obj.id}`);
+      if (hit.type === "end") {
+        startHandleDrag(e, { type: "measure-end", end: hit.end });
+        return;
+      }
+      const [ix, iy] = app.canvas.toIn(wx, wy);
+      app.drag = {
+        type: "measure-slide",
+        id: hit.obj.id,
+        origin: { x1: hit.obj.x1, y1: hit.obj.y1, x2: hit.obj.x2, y2: hit.obj.y2 },
+        from: [ix, iy],
+        moved: false,
+        sx: e.clientX,
+        sy: e.clientY,
+      };
+      return;
+    }
+    const [x, y] = app.canvas.toIn(wx, wy);
+    app.drag = { type: "measure", start: [x, y], sx: e.clientX, sy: e.clientY, moved: false };
   }
 }
 
@@ -1343,6 +1443,13 @@ function toolHover(e) {
       const [w, h] = FIXTURE_SIZES[app.opts.fixtureType] || [24, 24];
       app.hoverGhost = fixtureGhost(p.x, p.y, w, h, app.opts.fixtureRot);
     }
+  } else if (tool === "measure") {
+    const onHandle = e.target.dataset && e.target.dataset.h !== undefined;
+    const [wx, wy] = app.cursor.world;
+    const over = onHandle || measureAt(wx, wy);
+    svg.style.cursor = over ? "move" : "crosshair";
+    app.cursor.snap = null;
+    if (!over) app.hoverGhost = rayGhost(app.cursor.in[0], app.cursor.in[1]);
   } else if (tool === "door" || tool === "window") {
     const [x, y] = app.cursor.in;
     const hit = nearestWall(x, y);
@@ -1476,7 +1583,19 @@ export function editPrimaryDim() {
 
 function startHandleDrag(e, h) {
   const [kind, id] = splitKey(app.sel);
-  app.drag = { type: "handle", h, kind, id, obj: structuredClone(getObject(app.sel)), alt: e.altKey, moved: false, sx: e.clientX, sy: e.clientY };
+  const [wx, wy] = toWorld(e);
+  app.drag = {
+    type: "handle",
+    h,
+    kind,
+    id,
+    obj: structuredClone(getObject(app.sel)),
+    alt: e.altKey,
+    moved: false,
+    sx: e.clientX,
+    sy: e.clientY,
+    fromIn: app.canvas.toIn(wx, wy),
+  };
 }
 
 function handleMove(e) {
@@ -1541,8 +1660,34 @@ function handleMove(e) {
     rot = ((rot % 360) + 360) % 360;
     d.result = rot;
     d.ghost = fixtureGhost(obj.x, obj.y, obj.w, obj.h, rot) + measureText(...c.pt(obj.x, obj.y), `${Math.round(rot)}°`);
+  } else if (h.type === "measure-end") {
+    const fixed = h.end === "start" ? [obj.x2, obj.y2] : [obj.x1, obj.y1];
+    const p = placePoint(tapeEdges(app.plan), app.cursor.in[0], app.cursor.in[1], tapeTol(), fixed);
+    if (Math.hypot(p.x - fixed[0], p.y - fixed[1]) < 0.25) {
+      d.result = undefined;
+      d.ghost = null;
+    } else {
+      d.result = h.end === "start" ? { x1: p.x, y1: p.y } : { x2: p.x, y2: p.y };
+      d.snap = p.kind === "edge" ? p : null;
+      const a = h.end === "start" ? [p.x, p.y] : fixed;
+      const b = h.end === "start" ? fixed : [p.x, p.y];
+      d.ghost = tapeLine(a, b);
+    }
+  } else if (h.type === "measure-body") {
+    const [dx, dy] = straightDelta(app.cursor.in[0] - d.fromIn[0], app.cursor.in[1] - d.fromIn[1], tapeTol());
+    d.result = slideMeasure(obj, dx, dy);
+    d.ghost = tapeLine([d.result.x1, d.result.y1], [d.result.x2, d.result.y2]);
   }
   renderUI();
+}
+
+function slideMeasure(obj, dx, dy) {
+  return {
+    x1: round2(obj.x1 + dx),
+    y1: round2(obj.y1 + dy),
+    x2: round2(obj.x2 + dx),
+    y2: round2(obj.y2 + dy),
+  };
 }
 
 async function handleUp(e) {
@@ -1562,6 +1707,7 @@ async function handleUp(e) {
   else if (h.type === "box-corner") await send({ op: "update", kind, id, fields: d.result });
   else if (h.type === "fix-resize") await send({ op: "update", kind, id, fields: d.result });
   else if (h.type === "fix-rotate") await send({ op: "update", kind, id, fields: { rot: d.result } });
+  else if (h.type === "measure-end" || h.type === "measure-body") await send({ op: "update", kind, id, fields: d.result });
   renderUI();
 }
 
@@ -1575,6 +1721,8 @@ function moveMove(e) {
   if (e.shiftKey) {
     if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
     else dx = 0;
+  } else if (d.keys.length === 1 && d.keys[0].startsWith("measures:")) {
+    [dx, dy] = straightDelta(dx, dy, px(12));
   }
   const step = app.show.grid ? 0.5 : 0.01;
   d.dIn = [Math.round(dx / app.canvas.scale / step) * step, Math.round(dy / app.canvas.scale / step) * step];
@@ -1964,11 +2112,72 @@ function dragTo(e) {
     if (!d.moved && Math.hypot(d.dx, d.dy) * app.view.z < 3) return;
     d.moved = true;
     d.el.setAttribute("transform", `translate(${d.orig[0] + d.dx} ${d.orig[1] + d.dy}) scale(${px(1)})`);
+  } else if (d.type === "measure") {
+    const dx = e.clientX - d.sx;
+    const dy = e.clientY - d.sy;
+    if (!d.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
+    d.moved = true;
+    const edges = tapeEdges(app.plan);
+    const tol = tapeTol();
+    const a = placePoint(edges, d.start[0], d.start[1], tol);
+    const b = placePoint(edges, app.cursor.in[0], app.cursor.in[1], tol, [a.x, a.y]);
+    d.a = a;
+    d.b = b;
+    d.snap = b.kind === "edge" ? b : a.kind === "edge" ? a : null;
+    d.ghost = tapeLine([a.x, a.y], [b.x, b.y]);
+    renderUI();
+  } else if (d.type === "measure-slide") {
+    const dx0 = app.cursor.in[0] - d.from[0];
+    const dy0 = app.cursor.in[1] - d.from[1];
+    if (!d.moved && Math.hypot(dx0, dy0) * app.canvas.scale * app.view.z < DRAG_SLOP) return;
+    d.moved = true;
+    const [dx, dy] = straightDelta(dx0, dy0, tapeTol());
+    d.result = slideMeasure(d.origin, dx, dy);
+    d.ghost = tapeLine([d.result.x1, d.result.y1], [d.result.x2, d.result.y2]);
+    renderUI();
   }
 }
 
 const DRAG_SLOP = 4;
 const REATTACH = 14;
+
+async function placeMeasures(objs) {
+  const before = new Set((app.plan.measures || []).map((m) => m.id));
+  await send({ op: "batch", ops: objs.map((obj) => ({ op: "add", kind: "measures", obj })) }, { selectRef: false });
+  const added = (app.plan.measures || []).filter((m) => !before.has(m.id));
+  if (added.length === 1) select(`measures:${added[0].id}`);
+  else if (added.length) selectKeys(added.map((m) => `measures:${m.id}`));
+  if (added.length) message(added.map((m) => formatLength(Math.hypot(m.x2 - m.x1, m.y2 - m.y1))).join("  ·  "));
+}
+
+async function measureUp(d) {
+  app.drag = null;
+  if (!d.moved) {
+    const objs = clickMeasures(tapeEdges(app.plan), d.start[0], d.start[1]);
+    if (!objs.length) {
+      message("Nothing to measure there.");
+      renderUI();
+      return;
+    }
+    await placeMeasures(objs);
+    return;
+  }
+  if (!d.a || !d.b || Math.hypot(d.b.x - d.a.x, d.b.y - d.a.y) < 0.5) {
+    message("That measurement is too short.");
+    renderUI();
+    return;
+  }
+  await placeMeasures([{ x1: d.a.x, y1: d.a.y, x2: d.b.x, y2: d.b.y }]);
+}
+
+async function measureSlideUp(d) {
+  app.drag = null;
+  if (!d.moved || !d.result) {
+    renderUI();
+    return;
+  }
+  await send({ op: "update", kind: "measures", id: d.id, fields: d.result });
+}
 
 /** A press on a measurement label that never moved is a click: open the box to type a value. */
 function dimDragUp(d) {
@@ -1990,6 +2199,10 @@ function dimDragUp(d) {
 window.addEventListener("pointerup", async (e) => {
   const d = app.drag;
   if (!d) return;
+  if (app.canvas) {
+    const [wx, wy] = toWorld(e);
+    app.cursor = { world: [wx, wy], in: app.canvas.toIn(wx, wy), snap: null, onStage: true };
+  }
   svg.classList.remove("panning");
   // The release point counts even when no pointermove arrived (native drag-and-drop swallows them).
   if (d.type !== "handle" || e.clientX !== d.sx || e.clientY !== d.sy) dragTo(e);
@@ -2002,6 +2215,8 @@ window.addEventListener("pointerup", async (e) => {
   else if (d.type === "flag-new") flagNewUp(e);
   else if (d.type === "flag-move") flagMoveUp();
   else if (d.type === "dim-drag") dimDragUp(d);
+  else if (d.type === "measure") await measureUp(d);
+  else if (d.type === "measure-slide") await measureSlideUp(d);
   else if (d.type === "rect" && d.kind === "fixtures") {
     app.drag = null;
     await placeFixture(d.start, d.cur);

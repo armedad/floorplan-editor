@@ -421,7 +421,7 @@ function flagProps(f) {
 }
 
 function planProps(plan) {
-  const counts = ["walls", "openings", "counters", "fixtures", "labels", "erase"]
+  const counts = ["walls", "openings", "counters", "fixtures", "labels", "erase", "measures"]
     .map((k) => `${(plan[k] || []).length} ${k}`)
     .join(", ");
   const c = plan.compass;

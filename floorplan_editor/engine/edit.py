@@ -18,7 +18,14 @@ from .geometry import along, parse_length, project, wall_length
 from .model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS, SIDE_VEC, comments_of, compass_from_up
 
 JOIN_TOL = 1.0
-ID_PREFIX = {"walls": "wall", "openings": "door", "counters": "counter", "fixtures": "fixture", "erase": "erase"}
+ID_PREFIX = {
+    "walls": "wall",
+    "openings": "door",
+    "counters": "counter",
+    "fixtures": "fixture",
+    "erase": "erase",
+    "measures": "measure",
+}
 
 
 class EditError(ValueError):
@@ -334,6 +341,11 @@ def op_move(plan: dict, op: dict):
         clamp_openings(plan, wall["id"])
     elif kind == "counters" and "points" in item:
         item["points"] = [[_r(px + dx), _r(py + dy)] for px, py in item["points"]]
+    elif kind == "measures":
+        item["x1"] = _r(float(item["x1"]) + dx)
+        item["y1"] = _r(float(item["y1"]) + dy)
+        item["x2"] = _r(float(item["x2"]) + dx)
+        item["y2"] = _r(float(item["y2"]) + dy)
     else:
         item["x"] = _r(float(item["x"]) + dx)
         item["y"] = _r(float(item["y"]) + dy)

@@ -21,6 +21,7 @@ const TOOLS = [
   ["label", "Add a text label", "T"],
   ["erase", "White out sheet ink", "E"],
   ["calibrate", "Set the scale from a known length", "K"],
+  ["measure", "Measure a distance", "M"],
   ["flag", "Drop a flag (click a spot or drag an area)", "F"],
 ];
 

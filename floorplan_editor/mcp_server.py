@@ -34,7 +34,7 @@ URL = os.environ.get("FLOORPLAN_URL", "http://127.0.0.1:35667").rstrip("/")
 LOG = Path(tempfile.gettempdir()) / "floorplan-editor.log"
 BASE = "plan.json"
 
-Kind = Literal["walls", "openings", "counters", "fixtures", "labels", "erase"]
+Kind = Literal["walls", "openings", "counters", "fixtures", "labels", "erase", "measures"]
 
 mcp = FastMCP(
     "floorplan-editor",
@@ -1500,7 +1500,7 @@ def control_browser(
     id: str | int | None = None,
     ids: list[str] | None = None,
     region: list[float] | None = None,
-    tool: Literal["select", "wall", "door", "window", "counter", "polygon", "fixture", "label", "erase", "calibrate", "flag"]
+    tool: Literal["select", "wall", "door", "window", "counter", "polygon", "fixture", "label", "erase", "calibrate", "measure", "flag"]
     | None = None,
     sheet: bool | None = None,
     erase: bool | None = None,

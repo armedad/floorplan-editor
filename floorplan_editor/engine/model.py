@@ -44,7 +44,7 @@ FIXTURE_LABELS = {
     "upper_cabinet": "UPPER",
 }
 WALL_KINDS = ("glass_rail",)
-ID_KEYS = ("walls", "openings", "counters", "fixtures", "erase")
+ID_KEYS = ("walls", "openings", "counters", "fixtures", "erase", "measures")
 LIST_KEYS = ID_KEYS + ("labels",)
 COMMENTED = {"comments"}
 
@@ -390,6 +390,17 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
         _fields(region, {"id", "x", "y", "w", "h"}, COMMENTED, path, errors)
         take_id(region.get("id"), f"{path}.id")
         _box(region, path, errors)
+
+    for i, measure in enumerate(_list(plan, "measures", errors)):
+        path = f"plan.measures[{i}]"
+        if not isinstance(measure, dict):
+            errors.append(f"{path} must be an object")
+            continue
+        _fields(measure, {"id", "x1", "y1", "x2", "y2"}, COMMENTED, path, errors)
+        take_id(measure.get("id"), f"{path}.id")
+        nums = [_num(measure.get(key), f"{path}.{key}", errors) for key in ("x1", "y1", "x2", "y2")]
+        if all(n is not None for n in nums) and math.hypot(nums[2] - nums[0], nums[3] - nums[1]) <= 0:
+            errors.append(f"{path} has no length")
 
     _check_comments(plan, errors)
     return errors

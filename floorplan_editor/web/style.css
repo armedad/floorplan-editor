@@ -426,6 +426,11 @@ dialog label {
   stroke: rgba(21, 101, 192, 0.55);
   fill: none;
 }
+.tape {
+  stroke: #00897b;
+  fill: none;
+  stroke-dasharray: 4 3;
+}
 .snap-mark {
   fill: none;
   stroke: #e65100;
@@ -439,6 +444,7 @@ dialog label {
 }
 .ghost,
 .ghost-line,
+.tape,
 .snap-mark,
 .marquee,
 .flag-ghost,

@@ -235,7 +235,53 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
                 "obj": ["labels", index],
             }
         )
+
+    for measure in plan.get("measures", []):
+        ops.extend(_measure_ops(measure, canvas))
     return ops
+
+
+def _length_label(inches: float) -> str:
+    sign = "-" if inches < 0 else ""
+    rest = abs(inches)
+    feet = int(rest // 12)
+    rest -= feet * 12
+    if round(rest, 1) >= 12:
+        feet += 1
+        rest = 0.0
+    inch = f"{rest:.1f}"
+    return f"{sign}{feet}'{inch}\"" if feet else f"{sign}{inch}\""
+
+
+def _measure_ops(measure: dict, canvas: Canvas) -> list[dict]:
+    x1, y1 = float(measure["x1"]), float(measure["y1"])
+    x2, y2 = float(measure["x2"]), float(measure["y2"])
+    ax, ay = canvas.pt(x1, y1)
+    bx, by = canvas.pt(x2, y2)
+    dx, dy = bx - ax, by - ay
+    length = math.hypot(dx, dy) or 1.0
+    nx, ny = -dy / length, dx / length
+    tick = 6.0
+    gap = 12.0
+    tag = ["measures", measure["id"]]
+    color = "#00897b"
+    line = {"stroke": color, "width": 1.5, "role": "measure", "obj": tag}
+    return [
+        {"op": "line", "a": [ax, ay], "b": [bx, by], **line},
+        {"op": "line", "a": [ax - nx * tick, ay - ny * tick], "b": [ax + nx * tick, ay + ny * tick], **line},
+        {"op": "line", "a": [bx - nx * tick, by - ny * tick], "b": [bx + nx * tick, by + ny * tick], **line},
+        {
+            "op": "text",
+            "at": [(ax + bx) / 2 + nx * gap, (ay + by) / 2 + ny * gap],
+            "text": _length_label(math.hypot(x2 - x1, y2 - y1)),
+            "size": 13,
+            "fill": "#00695c",
+            "role": "measure",
+            "normal": [nx, ny],
+            "gap": gap,
+            "obj": tag,
+        },
+    ]
 
 
 def fixture_ops(fixture: dict, canvas: Canvas, ink, fill: bool) -> list[dict]:

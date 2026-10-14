@@ -2,6 +2,7 @@ import pytest
 
 from floorplan_editor.engine import validate_plan
 from floorplan_editor.engine.edit import EditError, apply, snap_point
+from floorplan_editor.engine.render import scene
 
 
 def wall(plan, wall_id):
@@ -194,3 +195,18 @@ def test_duplicate_copies_walls_with_their_openings(sample):
     door = next(o for o in plan["openings"] if o["id"] == refs[1][1])
     assert door["wall"] == copy_wall["id"] and door["offset"] == 20
     assert validate_plan(plan) == []
+
+
+def test_measure_moves_both_ends(sample):
+    plan, ref = apply(sample, {"op": "add", "kind": "measures", "obj": {"x1": 10, "y1": 20, "x2": 40, "y2": 20}})
+    assert ref == ["measures", "measure-1"]
+    plan, _ = apply(plan, {"op": "move", "kind": "measures", "id": "measure-1", "dx": 5, "dy": -3})
+    measure = plan["measures"][0]
+    assert (measure["x1"], measure["y1"], measure["x2"], measure["y2"]) == (15, 17, 45, 17)
+    assert validate_plan(plan) == []
+    assert any(op.get("role") == "measure" and op.get("text") == "2'6.0\"" for op in scene(plan))
+
+
+def test_measure_must_have_length(sample):
+    plan, _ = apply(sample, {"op": "add", "kind": "measures", "obj": {"x1": 1, "y1": 1, "x2": 1, "y2": 1}})
+    assert any("has no length" in error for error in validate_plan(plan))
