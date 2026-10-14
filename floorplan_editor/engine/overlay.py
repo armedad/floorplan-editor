@@ -1,4 +1,4 @@
-"""Draw a plan in red over its source sheet, erasing ink the plan removed."""
+"""Draw a plan in its colors over its source sheet, erasing ink the plan removed."""
 
 from __future__ import annotations
 
@@ -6,12 +6,11 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw
 
+from .appearance import rgba
 from .model import PlanError
 from .render import Canvas, draw_png, scene
 
 DRAWN_KEYS = ("walls", "openings", "counters", "fixtures")
-OVERLAY_RED = (196, 0, 0, 220)
-OVERLAY_WALL_FILL = (196, 0, 0, 110)
 
 
 def apply_erase_regions(image: Image.Image, plan: dict) -> Image.Image:
@@ -82,12 +81,10 @@ def overlay_image(plan: dict, source: Path, erase_from: dict | None = None) -> I
     base = apply_erase_regions(base, plan)
     if erase_from is not None:
         erase_removed(base, erase_from, plan)
-    ops = scene(plan, ink=OVERLAY_RED, fill_walls=False)
+    ops = scene(plan, fill_walls=False)
     for op in ops:
-        if op["op"] == "polygon" and op.get("role") == "wall":
-            op["fill"] = OVERLAY_WALL_FILL
-        if op["op"] == "text":
-            op["fill"] = (196, 0, 0, 255)
+        if op["op"] == "polygon" and op.get("role") == "wall" and isinstance(op.get("stroke"), str):
+            op["fill"] = rgba(op["stroke"], 110)
     layer = draw_png(plan, ops, (0, 0, 0, 0))
     return Image.alpha_composite(base, layer).convert("RGB")
 

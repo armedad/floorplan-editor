@@ -213,9 +213,26 @@ def validate_building(data: dict) -> list[str]:
     return errors
 
 
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _validate_colors(plan: dict, errors: list[str]) -> None:
+    colors = plan.get("colors")
+    if "colors" not in plan:
+        return
+    if not isinstance(colors, dict):
+        errors.append("plan.colors must be an object of group id to #rrggbb")
+        return
+    for key, value in colors.items():
+        if not isinstance(key, str) or not key:
+            errors.append("plan.colors keys must be group ids")
+        elif not isinstance(value, str) or not _HEX_COLOR.match(value):
+            errors.append(f"plan.colors.{key} must be a #rrggbb color")
+
+
 def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
     errors: list[str] = []
-    optional = set(LIST_KEYS) | {"name", "notes", "sheet"} | ({"id"} if floor else set())
+    optional = set(LIST_KEYS) | {"name", "notes", "sheet", "colors"} | ({"id"} if floor else set())
     _fields(plan, {"units", "compass", "canvas"}, optional, "plan", errors)
     if plan.get("units") != "inches":
         errors.append("plan.units must be 'inches'")
@@ -224,6 +241,7 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
             errors.append(f"plan.{key} must be a string")
     if "sheet" in plan and not (isinstance(plan["sheet"], str) and SHEET_NAME.match(plan["sheet"])):
         errors.append("plan.sheet must be the name of a .png or .jpg in the plan's folder")
+    _validate_colors(plan, errors)
 
     compass = plan.get("compass")
     if not isinstance(compass, dict):

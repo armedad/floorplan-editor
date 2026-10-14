@@ -171,7 +171,7 @@ def overlay_stack(data: dict, folder: Path, base: dict | None) -> tuple[Image.Im
 
 # ---------------------------------------------------------------- merging steps of a building
 
-FLOOR_META = ("name", "notes", "compass", "canvas", "sheet", "units")
+FLOOR_META = ("name", "notes", "compass", "canvas", "sheet", "units", "colors")
 
 
 def merge_buildings(base: dict, steps: list[tuple[str, dict]]) -> dict:

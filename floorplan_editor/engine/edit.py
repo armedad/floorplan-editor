@@ -14,6 +14,7 @@ import re
 from datetime import datetime, timezone
 
 from .analyze import Frame, doorway, gap_among, items_box, merged_geometry, nearest_wall, parallel, wall_groups
+from .appearance import is_color
 from .geometry import along, parse_length, project, wall_length
 from .model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS, SIDE_VEC, comments_of, compass_from_up
 
@@ -617,6 +618,28 @@ def op_set_compass(plan: dict, op: dict):
     return None
 
 
+def op_set_colors(plan: dict, op: dict):
+    """Set or clear this plan's color overrides. A null value clears that group and falls back to the editor default."""
+    colors = dict(plan.get("colors") or {})
+    updates = op.get("colors")
+    if not isinstance(updates, dict):
+        raise EditError("colors must be an object")
+    for key, value in updates.items():
+        if not isinstance(key, str) or not key:
+            raise EditError("a color override needs a group")
+        if value is None:
+            colors.pop(key, None)
+        elif is_color(value):
+            colors[key] = value.lower()
+        else:
+            raise EditError("a color override must be a #rrggbb color")
+    if colors:
+        plan["colors"] = colors
+    else:
+        plan.pop("colors", None)
+    return None
+
+
 def op_set_meta(plan: dict, op: dict):
     for key in ("name", "notes"):
         if key in op:
@@ -927,6 +950,7 @@ OPS = {
     "calibrate": op_calibrate,
     "set_compass": op_set_compass,
     "set_meta": op_set_meta,
+    "set_colors": op_set_colors,
     "add_walls": op_add_walls,
     "merge_walls": op_merge_walls,
     "merge_stacked": op_merge_stacked,

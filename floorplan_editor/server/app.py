@@ -32,6 +32,7 @@ from PIL import Image
 
 from ..agents import instructions_html
 from ..engine import PlanError, checked, draw_png, is_building, load_plan, scene, validate_plan
+from ..engine.appearance import load_appearance, save_appearance
 from ..engine.analyze import lookup, stray_bits, wall_groups
 from ..engine.building import FIRST_FLOOR, as_building, export_image, floor_by_id, floor_label, floors_of, next_floor_id
 from ..engine.edit import EditError, apply
@@ -687,6 +688,7 @@ class Document:
             "sheet": self.sheet_info(),
             "has_base": (self.folder / BASE_NAME).exists(),
             "fixture_types": list(FIXTURE_TYPES),
+            "appearance": load_appearance(),
             "browsers": self.browsers,
             "flags": self.flags.listing(plan["canvas"] if plan else None),
             "workspace": str(workspace()),
@@ -740,6 +742,21 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
         if not page:
             raise HTTPException(404, "the harness instructions are missing")
         return HTMLResponse(page, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/appearance")
+    def get_appearance():
+        return load_appearance()
+
+    @app.post("/api/appearance")
+    def post_appearance(body: dict = Body(...)):
+        """Save which kinds share a color, and the editor-wide default colors. Plan overrides stay in the plan."""
+        try:
+            saved = save_appearance(body)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        with doc.lock:
+            doc.bump()
+        return saved
 
     @app.get("/api/state")
     def get_state():

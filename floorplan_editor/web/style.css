@@ -374,24 +374,48 @@ h2 .count {
   color: #1565c0;
   text-decoration: underline;
 }
-#about-dialog {
-  width: 440px;
+#settings-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(860px, calc(100vh - 32px));
 }
-#about-dialog .about-name {
+#settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100vh - 80px);
+}
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+}
+.settings-tabs button.on {
+  background: #1d2329;
+  color: #fff;
+  border-color: #1d2329;
+}
+#settings-about,
+#settings-commands,
+#settings-customize {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+#settings-about .about-name {
   text-transform: none;
   letter-spacing: 0;
   font-size: 20px;
   color: #1d2329;
   margin-bottom: 2px;
 }
-#about-dialog .about-tag {
+#settings-about .about-tag {
   margin-top: 0;
   font-style: italic;
 }
-#about-dialog p {
+#settings-about p,
+#settings-commands h3 {
   margin: 8px 0;
 }
-#about-dialog a {
+#settings-about a {
   color: #1565c0;
 }
 
@@ -406,18 +430,79 @@ dialog label {
   gap: 3px;
   margin: 8px 0;
 }
+.cmd-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 3px 0;
+  border-bottom: 1px solid #eef1f4;
+}
+.cmd-keys {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.color-group {
+  border: 1px solid #e1e6eb;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.color-group .group-name {
+  font-weight: 600;
+  width: 100%;
+}
+.kind-chips {
+  min-height: 32px;
+  margin: 6px 0;
+  padding: 4px;
+  background: #f6f8fa;
+  border-radius: 4px;
+}
+.kind-chips.drop {
+  outline: 2px solid #0d47a1;
+}
+.kind-chip {
+  display: inline-block;
+  margin: 2px;
+  padding: 2px 8px;
+  border: 1px solid #ccd3da;
+  border-radius: 10px;
+  background: #fff;
+  cursor: grab;
+}
+.color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: center;
+}
+.color-row label {
+  flex-direction: row;
+  align-items: center;
+  margin: 0;
+}
+.selection-color {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e1e6eb;
+}
+.selection-color label {
+  flex-direction: row;
+  align-items: center;
+}
 
 /* plan drawing */
 #plan-layer .obj.selected polygon,
 #plan-layer .obj.selected line,
 #plan-layer .obj.selected path {
-  stroke: #1565c0;
+  stroke: var(--select, #0d47a1);
 }
 #plan-layer .obj.selected polygon.wall {
-  fill: rgba(21, 101, 192, 0.5);
+  fill: color-mix(in srgb, var(--select, #0d47a1) 50%, transparent);
 }
 #plan-layer .obj.selected text {
-  fill: #1565c0;
+  fill: var(--select, #0d47a1);
 }
 #plan-layer text {
   font-family: Arial, sans-serif;
@@ -430,8 +515,8 @@ dialog label {
   stroke-dasharray: 4 3;
 }
 .erase-rect.selected {
-  fill: rgba(21, 101, 192, 0.25);
-  stroke: #1565c0;
+  fill: color-mix(in srgb, var(--select, #0d47a1) 25%, transparent);
+  stroke: var(--select, #0d47a1);
   stroke-dasharray: none;
 }
 .trace-wall {
@@ -440,7 +525,7 @@ dialog label {
 }
 .handle {
   fill: #fff;
-  stroke: #1565c0;
+  stroke: var(--select, #0d47a1);
   cursor: grab;
 }
 .handle.mid {
@@ -450,16 +535,16 @@ dialog label {
   fill: #ffe9a8;
 }
 .ghost {
-  fill: rgba(21, 101, 192, 0.18);
-  stroke: #1565c0;
+  fill: color-mix(in srgb, var(--select, #0d47a1) 18%, transparent);
+  stroke: var(--select, #0d47a1);
   stroke-dasharray: 5 3;
 }
 .ghost-line {
-  stroke: rgba(21, 101, 192, 0.55);
+  stroke: color-mix(in srgb, var(--select, #0d47a1) 55%, transparent);
   fill: none;
 }
 .tape {
-  stroke: #00897b;
+  stroke: var(--measure, #ef6c00);
   fill: none;
   stroke-dasharray: 4 3;
 }
@@ -469,7 +554,7 @@ dialog label {
 }
 .measure {
   font-family: Arial, sans-serif;
-  fill: #0d47a1;
+  fill: var(--select, #0d47a1);
   paint-order: stroke;
   stroke: #fff;
   pointer-events: none;
@@ -492,8 +577,8 @@ dialog label {
 
 /* box selection: blue solid = whole objects inside, green dashed = anything touched */
 .marquee {
-  fill: rgba(21, 101, 192, 0.08);
-  stroke: #1565c0;
+  fill: color-mix(in srgb, var(--select, #0d47a1) 8%, transparent);
+  stroke: var(--select, #0d47a1);
 }
 .marquee.crossing {
   fill: rgba(46, 125, 50, 0.08);

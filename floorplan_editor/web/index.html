@@ -155,7 +155,7 @@
       <span id="status-snap"></span>
       <span id="status-zoom"></span>
       <span id="status-file"></span>
-      <button id="about-btn" type="button" title="About Floor Plan-It">Floor Plan-It</button>
+      <button id="about-btn" type="button" title="Settings">Floor Plan-It</button>
     </footer>
 
     <div id="toast" role="status" aria-live="polite"></div>
@@ -172,23 +172,41 @@
     <input type="file" id="upload" accept=".json,.png,.jpg,.jpeg" multiple hidden />
     <input type="file" id="floor-upload" accept=".json,.png,.jpg,.jpeg" multiple hidden />
 
-    <dialog id="about-dialog" aria-labelledby="about-name">
-      <form method="dialog">
-        <h2 id="about-name" class="about-name">Floor Plan-It</h2>
-        <p class="about-tag">A floor plan editor. You trace the sheet, and then you plan it.</p>
-        <p>Version 0.1.0</p>
-        <p>Draw walls, doors, windows, and fixtures over a floor plan image, measure them in inches, and save the plan as data.</p>
-        <p>Source code: <a href="https://github.com/armedad/floorplan-editor" target="_blank" rel="noopener">github.com/armedad/floorplan-editor</a></p>
-        <p>
-          <a href="/agents" target="_blank" rel="noopener">Instructions for an AI harness</a>
-          (<a href="https://github.com/armedad/floorplan-editor/blob/main/AGENTS.md" target="_blank" rel="noopener">on GitHub</a>).
-        </p>
-        <p>
-          Licensed under the <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License v3.0</a>.
-          You can use, share, and change it under those terms. There is no warranty.
-        </p>
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <form id="settings-form">
+        <h2 id="settings-title">Settings</h2>
+        <div class="settings-tabs" role="tablist">
+          <button type="button" data-settings-tab="about" role="tab">About</button>
+          <button type="button" data-settings-tab="commands" role="tab">Commands</button>
+          <button type="button" data-settings-tab="customize" role="tab">Customize</button>
+        </div>
+        <div id="settings-about" role="tabpanel">
+          <h2 class="about-name">Floor Plan-It</h2>
+          <p class="about-tag">A floor plan editor. You trace the sheet, and then you plan it.</p>
+          <p>Version 0.1.0</p>
+          <p>Draw walls, doors, windows, and fixtures over a floor plan image, measure them in inches, and save the plan as data.</p>
+          <p>Source code: <a href="https://github.com/armedad/floorplan-editor" target="_blank" rel="noopener">github.com/armedad/floorplan-editor</a></p>
+          <p>
+            <a href="/agents" target="_blank" rel="noopener">Instructions for an AI harness</a>
+            (<a href="https://github.com/armedad/floorplan-editor/blob/main/AGENTS.md" target="_blank" rel="noopener">on GitHub</a>).
+          </p>
+          <p>
+            Licensed under the <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License v3.0</a>.
+            You can use, share, and change it under those terms. There is no warranty.
+          </p>
+        </div>
+        <div id="settings-commands" role="tabpanel" hidden></div>
+        <div id="settings-customize" role="tabpanel" hidden>
+          <p class="note">Each kind of object shares a color. Drag a kind into another group to move it. These groups are for every plan on this computer. Check “This plan” to store a different color in the file you have open.</p>
+          <div id="color-groups"></div>
+          <button type="button" id="new-color-group">New group</button>
+          <div class="selection-color">
+            <label>Selection <input type="color" id="selection-color" value="#0d47a1" /></label>
+            <p class="note">The highlight on what you pick. It stays in the editor and is left out of saved pictures.</p>
+          </div>
+        </div>
         <div class="row right">
-          <button value="close" class="primary">Close</button>
+          <button type="button" id="settings-close" class="primary">Close</button>
         </div>
       </form>
     </dialog>

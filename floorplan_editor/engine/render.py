@@ -11,6 +11,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from .appearance import load_appearance, palette
 from .geometry import along, band, rect_polygon, rotate, unit, wall_length
 from .model import FIXTURE_LABELS, SIDE_VEC
 
@@ -85,8 +86,14 @@ def _local(fixture: dict, lx: float, ly: float) -> tuple[float, float]:
     return (float(fixture["x"]) + rx, float(fixture["y"]) + ry)
 
 
-def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
+def scene(plan: dict, *, ink=None, fill_walls: bool = True, appearance: dict | None = None) -> list[dict]:
+    """One floor as drawing ops. With no ink, each kind uses its group color. Passing ink paints everything that one color."""
     canvas = Canvas(plan)
+    paints = None if ink is not None else palette(plan, appearance if appearance is not None else load_appearance())
+
+    def paint(token: str):
+        return paints[token] if paints is not None else ink
+
     ops: list[dict] = []
     openings_by_wall: dict[str, list[dict]] = {}
     for opening in plan.get("openings", []):
@@ -95,6 +102,7 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
     for wall in plan.get("walls", []):
         thickness = float(wall["thickness"])
         tag = ["walls", wall["id"]]
+        wall_color = paint("walls")
         rail = wall.get("kind") == "glass_rail"
         for start, end in wall_parts(wall, openings_by_wall.get(wall["id"], [])):
             if rail:
@@ -103,7 +111,7 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
                         "op": "polygon",
                         "points": [canvas.pt(*p) for p in band(wall, start, end, thickness)],
                         "fill": None,
-                        "stroke": ink,
+                        "stroke": wall_color,
                         "width": 1,
                         "role": "rail",
                         "obj": tag,
@@ -111,15 +119,15 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
                 )
                 ops.append(
                     {"op": "line", "a": canvas.pt(*along(wall, start)), "b": canvas.pt(*along(wall, end)),
-                     "stroke": ink, "width": 1, "obj": tag}
+                     "stroke": wall_color, "width": 1, "obj": tag}
                 )
                 continue
             ops.append(
                 {
                     "op": "polygon",
                     "points": [canvas.pt(*p) for p in band(wall, start, end, thickness)],
-                    "fill": ink if fill_walls else None,
-                    "stroke": ink,
+                    "fill": wall_color if fill_walls else None,
+                    "stroke": wall_color,
                     "width": 1,
                     "role": "wall",
                     "obj": tag,
@@ -127,6 +135,7 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
             )
         for opening in openings_by_wall.get(wall["id"], []):
             otag = ["openings", opening["id"]]
+            opening_color = paint("doors" if opening["type"] == "door" else "windows")
             if opening["type"] == "door":
                 width = float(opening["width"])
                 hinge_at = float(opening["offset"])
@@ -145,7 +154,7 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
                 radius = canvas.px(width)
                 closed_px = canvas.pt(*closed)
                 open_px = canvas.pt(*opened)
-                ops.append({"op": "line", "a": center, "b": open_px, "stroke": ink, "width": 2, "obj": otag})
+                ops.append({"op": "line", "a": center, "b": open_px, "stroke": opening_color, "width": 2, "obj": otag})
                 start_angle = math.degrees(math.atan2(closed_px[1] - center[1], closed_px[0] - center[0])) % 360
                 end_angle = math.degrees(math.atan2(open_px[1] - center[1], open_px[0] - center[0])) % 360
                 if swing == "cw":
@@ -159,7 +168,7 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
                         "r": radius,
                         "start": arc_start,
                         "end": arc_end,
-                        "stroke": ink,
+                        "stroke": opening_color,
                         "width": 1.5,
                         "obj": otag,
                     }
@@ -177,7 +186,7 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
                             "op": "line",
                             "a": canvas.pt(start[0] + ox, start[1] + oy),
                             "b": canvas.pt(end[0] + ox, end[1] + oy),
-                            "stroke": ink,
+                            "stroke": opening_color,
                             "width": max(1, canvas.px(thickness) * 0.08),
                             "obj": otag,
                         }
@@ -185,13 +194,14 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
 
     for counter in plan.get("counters", []):
         tag = ["counters", counter["id"]]
+        counter_color = paint("counters")
         if "points" in counter:
             ops.append(
                 {
                     "op": "polygon",
                     "points": [canvas.pt(float(x), float(y)) for x, y in counter["points"]],
                     "fill": None,
-                    "stroke": ink,
+                    "stroke": counter_color,
                     "width": 1.5,
                     "obj": tag,
                 }
@@ -204,7 +214,7 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
                 "op": "polygon",
                 "points": [canvas.pt(*p) for p in top],
                 "fill": "#fff" if fill_walls else None,
-                "stroke": ink,
+                "stroke": counter_color,
                 "width": 1.5,
                 "obj": tag,
             }
@@ -215,14 +225,14 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
                     "op": "polygon",
                     "points": [canvas.pt(*p) for p in box],
                     "fill": None,
-                    "stroke": ink,
+                    "stroke": counter_color,
                     "width": 2,
                     "obj": tag,
                 }
             )
 
     for fixture in plan.get("fixtures", []):
-        ops.extend(fixture_ops(fixture, canvas, ink, fill_walls))
+        ops.extend(fixture_ops(fixture, canvas, paint("fixtures"), fill_walls))
 
     for index, label in enumerate(plan.get("labels", [])):
         ops.append(
@@ -231,13 +241,13 @@ def scene(plan: dict, *, ink="#000", fill_walls: bool = True) -> list[dict]:
                 "at": canvas.pt(float(label["x"]), float(label["y"])),
                 "text": label["text"],
                 "size": float(label.get("size_px", 16)),
-                "fill": ink,
+                "fill": paint("labels"),
                 "obj": ["labels", index],
             }
         )
 
     for measure in plan.get("measures", []):
-        ops.extend(_measure_ops(measure, canvas))
+        ops.extend(_measure_ops(measure, canvas, paint("measures")))
     return ops
 
 
@@ -253,7 +263,7 @@ def _length_label(inches: float) -> str:
     return f"{sign}{feet}'{inch}\"" if feet else f"{sign}{inch}\""
 
 
-def _measure_ops(measure: dict, canvas: Canvas) -> list[dict]:
+def _measure_ops(measure: dict, canvas: Canvas, color: str) -> list[dict]:
     x1, y1 = float(measure["x1"]), float(measure["y1"])
     x2, y2 = float(measure["x2"]), float(measure["y2"])
     ax, ay = canvas.pt(x1, y1)
@@ -264,7 +274,6 @@ def _measure_ops(measure: dict, canvas: Canvas) -> list[dict]:
     tick = 6.0
     gap = 12.0
     tag = ["measures", measure["id"]]
-    color = "#00897b"
     line = {"stroke": color, "width": 1.5, "role": "measure", "obj": tag}
     return [
         {"op": "line", "a": [ax, ay], "b": [bx, by], **line},
@@ -275,7 +284,7 @@ def _measure_ops(measure: dict, canvas: Canvas) -> list[dict]:
             "at": [(ax + bx) / 2 + nx * gap, (ay + by) / 2 + ny * gap],
             "text": _length_label(math.hypot(x2 - x1, y2 - y1)),
             "size": 13,
-            "fill": "#00695c",
+            "fill": color,
             "role": "measure",
             "normal": [nx, ny],
             "gap": gap,

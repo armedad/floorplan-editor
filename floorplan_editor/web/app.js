@@ -28,6 +28,7 @@ import { initOpen, renderEmpty } from "./open.js";
 import { loadSheetInk, placeLabels } from "./placement.js";
 import { initPanels, renderFiles, renderProps } from "./panels.js";
 import { hideTip, initTips } from "./help.js";
+import { applyAppearance, initSettings, syncPlanOverrides } from "./settings.js";
 import { $, popInput, popOpen } from "./ui.js";
 
 const svg = $("svg");
@@ -64,8 +65,6 @@ export const FIXTURE_SIZES = {
 
 const ZOOM_MIN = 0.05;
 const ZOOM_MAX = 40;
-const RED = "#c40000";
-const RED_FILL = "rgba(196,0,0,0.43)";
 const TOOLS = new Set(["select", "wall", "door", "window", "counter", "polygon", "fixture", "label", "erase", "calibrate", "measure", "flag"]);
 const TYPABLE = /^[0-9.'"<(\-]$/;
 
@@ -257,6 +256,7 @@ export function setState(state, { selectRef = true } = {}) {
   app.floorKey = floorKey;
   app.state = state;
   app.plan = state.plan;
+  if (state.appearance) applyAppearance(state.appearance, state.plan);
   app.canvas = state.plan ? new Canvas(state.plan) : null;
   app.objects = state.plan ? indexScene(state.scene) : new Map();
   if (newFloor) {
@@ -273,7 +273,7 @@ export function setState(state, { selectRef = true } = {}) {
   }
   if (selectRef && state.refs) setSelection(state.refs.map(keyOf));
   else if (selectRef && state.ref) setSelection([keyOf(state.ref)]);
-  else if (state.ref === null && "ref" in state) setSelection([...app.selection].filter((k) => k.startsWith("flags:")));
+  else if (selectRef && state.ref === null && "ref" in state) setSelection([...app.selection].filter((k) => k.startsWith("flags:")));
   if (state.flag) setSelection([`flags:${state.flag}`]);
   setSelection([...app.selection].filter((k) => getObject(k)), app.sel);
   $("empty").hidden = !!state.plan;
@@ -290,6 +290,7 @@ export function setState(state, { selectRef = true } = {}) {
   renderProps(app);
   renderFlagsPanel();
   renderCommentsPanel();
+  syncPlanOverrides();
   if (state.saved) confirmSaved(state.saved);
 }
 
@@ -514,11 +515,23 @@ function sheetOn() {
   return app.show.sheet && app.state && app.state.sheet;
 }
 
+function hexAlpha(hex, alpha) {
+  const h = String(hex || "").replace("#", "");
+  if (h.length !== 6) return null;
+  const n = Number.parseInt(h, 16);
+  if (Number.isNaN(n)) return null;
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
 function colors(op) {
-  if (op.role === "measure") return { stroke: op.stroke || "#00897b", fill: op.fill || "#00695c" };
-  if (!sheetOn()) return { stroke: op.stroke, fill: op.fill };
-  if (op.op === "text") return { fill: RED };
-  return { stroke: RED, fill: op.role === "wall" ? RED_FILL : null };
+  const stroke = op.stroke;
+  let fill = op.fill;
+  if (sheetOn()) {
+    if (op.op === "text") return { stroke, fill: fill || stroke };
+    if (op.role === "wall") fill = hexAlpha(stroke, 0.43);
+    else fill = null;
+  }
+  return { stroke, fill };
 }
 
 function opMarkup(op) {
@@ -2416,10 +2429,7 @@ $("undo").addEventListener("click", undo);
 $("redo").addEventListener("click", redo);
 $("save").addEventListener("click", () => save("overwrite"));
 $("save-step").addEventListener("click", () => save("step"));
-$("about-btn").addEventListener("click", () => $("about-dialog").showModal());
-$("about-dialog").addEventListener("click", (e) => {
-  if (e.target === $("about-dialog")) $("about-dialog").close();
-});
+initSettings();
 bindZoomHold($("zoom-out"), 0.8);
 bindZoomHold($("zoom-in"), 1.25);
 $("zoom-level").addEventListener("click", () => fitView());
