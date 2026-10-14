@@ -590,4 +590,4 @@ C:\Users\CheeC\code\.venv\Scripts\python.exe -m pytest
 
 ## License
 
-MIT
+Personal, non-commercial use is allowed. Credit is required. Modified versions need written permission. See [LICENSE](LICENSE).
