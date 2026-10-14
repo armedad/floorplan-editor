@@ -29,18 +29,19 @@ export const HELP = {
     ],
   },
   "tool-wall": {
-    tip: "Draw walls, one corner per click",
+    tip: "Draw walls, one corner per click. Hold Ctrl to place a corner exactly",
     keys: "W",
     more: [
       "Click each corner. After the first, you can type instead: a length goes toward the pointer (10'6\"), a length and angle goes that way (8'<90, counterclockwise from right), and 48, -12 goes right 48 and up 12.",
-      "Shift keeps a segment straight. Double-click, Enter, or Esc stops. The thickness is in the toolbar while the tool is on.",
+      "A corner snaps to the nearest wall, counter, or fixture, and the segment straightens when it is close to horizontal or vertical. Hold Ctrl to leave it where the pointer is. Shift forces it straight even from farther away.",
+      "Double-click, Enter, or Esc stops. The thickness is in the toolbar while the tool is on.",
     ],
   },
   "tool-door": {
     tip: "Add a door to a wall",
     keys: "D",
     more: [
-      "Click a wall to put a door there. Type a number first to change the width.",
+      "Click a wall to put a door there. It snaps to the nearest wall; hold Ctrl to use only the wall directly under the pointer. Type a number first to change the width.",
       "Click in the gap between two walls in line (a doorway left by tracing) and the walls join into one with the door filling the gap exactly.",
       "With a door selected, S flips which way it swings and H flips the hinge side.",
     ],
@@ -48,32 +49,39 @@ export const HELP = {
   "tool-window": {
     tip: "Add a window to a wall",
     keys: "N",
-    more: ["Click a wall to put a window there. Type a number first to change the width. Clicking in a gap between two walls in line fills the gap."],
+    more: ["Click a wall to put a window there. It snaps to the nearest wall; hold Ctrl to use only the wall directly under the pointer. Type a number first to change the width. Clicking in a gap between two walls in line fills the gap."],
   },
   "tool-counter": {
     tip: "Draw a rectangular counter",
     keys: "C",
-    more: ["Drag a rectangle, or click one corner and type width, depth (25, 60). For L-shapes and other outlines, use Outline (P)."],
+    more: ["Drag a rectangle, or click one corner and type width, depth (25, 60). Each corner snaps to a nearby wall, counter, or fixture, lining up with horizontal and vertical edges. Hold Ctrl to place it exactly where the pointer is. For L-shapes and other outlines, use Outline (P)."],
   },
   "tool-polygon": {
     tip: "Draw a counter of any shape, corner by corner",
     keys: "P",
-    more: ["Click each corner, or type edges like walls. Double-click or Enter closes it; Backspace removes the last corner. Later, drag the dot in the middle of an edge to add a corner, or Alt+click a corner to remove it."],
+    more: [
+      "Click each corner, or type edges like walls. A corner snaps to the nearest wall, counter, or fixture, and a side straightens when it is close to horizontal or vertical. Hold Ctrl to place it exactly where the pointer is.",
+      "Double-click or Enter closes it; Backspace removes the last corner. Later, drag the dot in the middle of an edge to add a corner, or Alt+click a corner to remove it.",
+    ],
   },
   "tool-fixture": {
     tip: "Place a toilet, tub, sink, range, and so on",
     keys: "X",
     more: [
-      "Pick the type and rotation in the toolbar. Click to place it at its usual size, or drag a box over the printed symbol to fit it exactly.",
+      "Pick the type and rotation in the toolbar. Click to place it at its usual size, or drag a box over the printed symbol to fit it exactly. The point snaps to a nearby wall, counter, or fixture. Hold Ctrl to place it exactly where the pointer is.",
       "R turns the next placement, or a selected fixture, 90°. A fixture's center is the point it turns around.",
     ],
   },
-  "tool-label": { tip: "Add a text label", keys: "T", more: ["Click where it goes and type the text. Text typed in the toolbar box is reused for every click, for dropping the same label several times."] },
+  "tool-label": {
+    tip: "Add a text label. Hold Ctrl to place it exactly",
+    keys: "T",
+    more: ["Click where it goes and type the text. The point snaps to a nearby wall, counter, or fixture; hold Ctrl to leave it where the pointer is. Text typed in the toolbar box is reused for every click, for dropping the same label several times."],
+  },
   "tool-erase": {
     tip: "White out printed ink on the sheet",
     keys: "E",
     more: [
-      "Drag a rectangle over ink you want gone, such as a fixture you removed or an old room name. It's whited out in the editor and in every saved overlay.",
+      "Drag a rectangle over ink you want gone, such as a fixture you removed or an old room name. Corners snap to nearby walls, counters, and fixtures; hold Ctrl to place them exactly where the pointer is. It's whited out in the editor and in every saved overlay.",
       "The sheet image itself is never changed. Erase regions are stored in the plan, so they can be moved, resized, or deleted later.",
     ],
   },
@@ -86,7 +94,7 @@ export const HELP = {
     tip: "Measure a distance, or the gap to the nearest edges",
     keys: "M",
     more: [
-      "Drag to measure. Each end snaps to the nearest wall, counter, or fixture, and the line straightens when it is close to horizontal or vertical.",
+      "Drag to measure. Each end snaps to the nearest wall, counter, or fixture, and the line straightens when it is close to horizontal or vertical. Hold Ctrl to measure exactly where you drag.",
       "Move the pointer and dotted lines show the distance to the first edge in each direction. Click without dragging to keep the horizontal and vertical ones.",
       "Drag an endpoint to move that end. Drag the line, or the handle in the middle, to move both ends together. M is Measure when nothing is selected, and Move… when something is.",
     ],
@@ -196,6 +204,7 @@ export const HELP = {
   },
 
   // ---------------------------------------------------------------- side panel: flags
+  "show-flags": { tip: "Show or hide the flag pins and shaded areas on the drawing. The list stays either way." },
   "flags-add": { tip: "Drop a flag: click a spot or drag an area", keys: "F" },
   "flags-copy": { tip: "Copy every open flag, with notes, to paste into a Cursor chat" },
   "flags-clear": { tip: "Remove the flags marked done" },

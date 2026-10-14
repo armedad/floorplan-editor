@@ -209,9 +209,9 @@ export function renderFloorBar() {
     ),
   );
   bar.replaceChildren(
-    s.building
-      ? el("button", { type: "button", class: "floor-building link", title: "Rename the building (the export's title)", on: { click: renameBuilding } }, s.building.name)
-      : null,
+    ...(s.building
+      ? [el("button", { type: "button", class: "floor-building link", title: "Rename the building (the export's title)", on: { click: renameBuilding } }, s.building.name || "Building")]
+      : []),
     el("div", { class: "floor-tabs", role: "tablist", "aria-label": "floors, top floor first" }, tabs),
     el("button", { type: "button", class: "floor-add", title: "Add a floor from another plan or a floor plan image", on: { click: (e) => showAddMenu(e.currentTarget) } }, "+ Floor"),
     el("button", { type: "button", class: "floor-export", title: "Every floor, drawn clean at one scale, stacked top floor first", on: { click: exportJpeg } }, "Export JPEG"),

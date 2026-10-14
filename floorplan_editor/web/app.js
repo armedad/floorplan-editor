@@ -23,7 +23,7 @@ import {
   wallLength,
 } from "./geom.js";
 import { dimsFor, opForDim } from "./measure.js";
-import { clickMeasures, placePoint, rayHits, tapeEdges } from "./tape.js";
+import { alignPoint, clickMeasures, placePoint, rayHits, tapeEdges } from "./tape.js";
 import { initOpen, renderEmpty } from "./open.js";
 import { loadSheetInk, placeLabels } from "./placement.js";
 import { initPanels, renderFiles, renderProps } from "./panels.js";
@@ -79,7 +79,7 @@ export const app = {
   clipboard: null,
   tool: "select",
   view: { x: 20, y: 20, z: 1 },
-  show: { sheet: true, opacity: 0.55, erase: true, snap: true, grid: true, dims: true, ids: false, comments: true },
+  show: { sheet: true, opacity: 0.55, erase: true, snap: true, grid: true, dims: true, ids: false, comments: true, flags: true },
   opts: { thickness: 4, doorWidth: 30, windowWidth: 36, fixtureType: "refrigerator", fixtureRot: 0, labelText: "", anchor: {}, thicknessKeep: "center" },
   drag: null,
   draft: null,
@@ -737,7 +737,7 @@ function updateToolbar() {
   }
   const file = s && s.file ? `${s.file}${s.dirty ? " •" : ""}` : "no plan";
   $("status-file").textContent = file;
-  document.title = `${s && s.dirty ? "• " : ""}${s && s.file ? s.file : "floorplan editor"}`;
+  document.title = `${s && s.dirty ? "• " : ""}${s && s.file ? s.file : "Floor Plan-It"}`;
 }
 
 // ---------------------------------------------------------------- UI layer: handles, dimensions, ghosts, snap marks
@@ -1136,15 +1136,45 @@ function snapped(e, anchor = null, skip = new Set()) {
   return { x: round2(x), y: round2(y), snap };
 }
 
-function nearestWall(x, y) {
+function nearestWall(x, y, reach = snapTolIn()) {
   let best = null;
   for (const w of app.plan.walls || []) {
     const p = project(w, x, y);
     const d = Math.hypot(p.x - x, p.y - y);
-    const tol = w.thickness / 2 + snapTolIn();
+    const tol = w.thickness / 2 + reach;
     if (d <= tol && (!best || d < best.d)) best = { d, wall: w, p };
   }
   return best;
+}
+
+/** Ctrl (or Command) places an added point exactly where the pointer is. */
+function freehand(e) {
+  return e.ctrlKey || e.metaKey;
+}
+
+/**
+ * Where a new wall, outline, counter, fixture, label, or erase region goes.
+ * With an anchor, a segment close to horizontal or vertical straightens, then sticks to an object.
+ * Without one, the point lines up with nearby horizontal and vertical edges.
+ */
+function placed(e, anchor = null) {
+  const [wx, wy] = toWorld(e);
+  let [x, y] = app.canvas.toIn(wx, wy);
+  if (freehand(e)) return { x: round2(x), y: round2(y), snap: { x, y, kind: "none" } };
+  if (anchor && e.shiftKey) [x, y] = lockAxis(anchor, x, y);
+  let hit = { x, y, kind: "free" };
+  if (app.show.snap) {
+    const edges = tapeEdges(app.plan);
+    const tol = tapeTol();
+    hit = anchor ? placePoint(edges, x, y, tol, anchor) : alignPoint(edges, x, y, tol);
+  } else if (anchor && e.shiftKey) hit = { x, y, kind: "axis" };
+  if (hit.kind === "free" && app.show.grid) hit = { x: Math.round(hit.x), y: Math.round(hit.y), kind: "grid" };
+  else if (hit.kind === "axis" && app.show.grid && anchor) {
+    if (Math.abs(hit.y - anchor[1]) < 1e-6) hit = { x: Math.round(hit.x), y: hit.y, kind: "axis" };
+    else if (Math.abs(hit.x - anchor[0]) < 1e-6) hit = { x: hit.x, y: Math.round(hit.y), kind: "axis" };
+  }
+  const kind = hit.kind === "edge" ? "edge" : hit.kind === "axis" ? "straight" : hit.kind;
+  return { x: round2(hit.x), y: round2(hit.y), snap: { x: hit.x, y: hit.y, kind } };
 }
 
 function pickAt(wx, wy) {
@@ -1176,6 +1206,11 @@ export function setTool(tool) {
     app.show.erase = true;
     $("show-erase").checked = true;
     renderErase();
+  }
+  if (tool === "flag" && !app.show.flags) {
+    app.show.flags = true;
+    $("show-flags").checked = true;
+    renderMarkers();
   }
   renderToolOptions();
   updateToolbar();
@@ -1322,14 +1357,14 @@ async function toolDown(e) {
   const tool = app.tool;
   if (tool === "wall" || tool === "polygon") {
     const anchor = app.draft ? app.draft.pts[app.draft.pts.length - 1] : null;
-    const p = snapped(e, anchor);
+    const p = placed(e, anchor);
     await addPathPoint([p.x, p.y]);
     return;
   }
   if (tool === "door" || tool === "window") {
     const [wx, wy] = toWorld(e);
     const [x, y] = app.canvas.toIn(wx, wy);
-    const hit = nearestWall(x, y);
+    const hit = nearestWall(x, y, freehand(e) || !app.show.snap ? 0 : snapTolIn());
     if (!hit) {
       const state = await call("/api/op", { op: { op: "convert", to: tool, at: [round2(x), round2(y)], gap_only: true } });
       if (!state) return;
@@ -1345,7 +1380,7 @@ async function toolDown(e) {
     return;
   }
   if (tool === "counter" || tool === "erase") {
-    const p = snapped(e);
+    const p = placed(e);
     const kind = tool === "counter" ? "counters" : "erase";
     if (app.draft && app.draft.type === "rect") {
       const start = app.draft.start;
@@ -1357,12 +1392,12 @@ async function toolDown(e) {
     return;
   }
   if (tool === "fixture") {
-    const p = snapped(e);
+    const p = placed(e);
     app.drag = { type: "rect", kind: "fixtures", start: [p.x, p.y], cur: [p.x, p.y] };
     return;
   }
   if (tool === "label") {
-    const p = snapped(e);
+    const p = placed(e);
     const text = app.opts.labelText.trim();
     if (!text) return askLabel(p);
     await send({ op: "add", kind: "labels", obj: { text, x: p.x, y: p.y } });
@@ -1429,13 +1464,13 @@ function toolHover(e) {
   }
   if ((tool === "wall" || tool === "polygon") && d && d.pts.length) {
     const a = d.pts[d.pts.length - 1];
-    const p = snapped(e, a);
+    const p = placed(e, a);
     app.cursor.snap = p.snap;
     app.hoverEnd = [p.x, p.y];
     const label = formatLength(Math.hypot(p.x - a[0], p.y - a[1]));
     app.hoverGhost = tool === "wall" ? lineGhost(a, [p.x, p.y], app.opts.thickness, label) : polyGhost([...d.pts, [p.x, p.y]], false) + lineGhost(a, [p.x, p.y], 0, label);
   } else if (["wall", "polygon", "counter", "erase", "label", "fixture"].includes(tool)) {
-    const p = snapped(e);
+    const p = placed(e);
     app.cursor.snap = p.snap;
     app.hoverEnd = [p.x, p.y];
     if (d && d.type === "rect") app.hoverGhost = rectGhost(d.start, [p.x, p.y]);
@@ -1452,7 +1487,7 @@ function toolHover(e) {
     if (!over) app.hoverGhost = rayGhost(app.cursor.in[0], app.cursor.in[1]);
   } else if (tool === "door" || tool === "window") {
     const [x, y] = app.cursor.in;
-    const hit = nearestWall(x, y);
+    const hit = nearestWall(x, y, freehand(e) || !app.show.snap ? 0 : snapTolIn());
     if (hit) {
       const w = hit.wall;
       const width = Math.min(tool === "door" ? app.opts.doorWidth : app.opts.windowWidth, hit.p.len);
@@ -2083,7 +2118,7 @@ function dragTo(e) {
   else if (d.type === "handle") handleMove(e);
   else if (d.type === "marquee") marqueeMove(e);
   else if (d.type === "rect") {
-    const p = snapped(e);
+    const p = placed(e);
     d.cur = [p.x, p.y];
     d.snap = p.snap;
     d.ghost = rectGhost(d.start, d.cur);
@@ -2119,8 +2154,11 @@ function dragTo(e) {
     d.moved = true;
     const edges = tapeEdges(app.plan);
     const tol = tapeTol();
-    const a = placePoint(edges, d.start[0], d.start[1], tol);
-    const b = placePoint(edges, app.cursor.in[0], app.cursor.in[1], tol, [a.x, a.y]);
+    const raw = freehand(e);
+    const a = raw ? { x: round2(d.start[0]), y: round2(d.start[1]), kind: "free" } : placePoint(edges, d.start[0], d.start[1], tol);
+    const b = raw
+      ? { x: round2(app.cursor.in[0]), y: round2(app.cursor.in[1]), kind: "free" }
+      : placePoint(edges, app.cursor.in[0], app.cursor.in[1], tol, [a.x, a.y]);
     d.a = a;
     d.b = b;
     d.snap = b.kind === "edge" ? b : a.kind === "edge" ? a : null;
@@ -2378,6 +2416,10 @@ $("undo").addEventListener("click", undo);
 $("redo").addEventListener("click", redo);
 $("save").addEventListener("click", () => save("overwrite"));
 $("save-step").addEventListener("click", () => save("step"));
+$("about-btn").addEventListener("click", () => $("about-dialog").showModal());
+$("about-dialog").addEventListener("click", (e) => {
+  if (e.target === $("about-dialog")) $("about-dialog").close();
+});
 bindZoomHold($("zoom-out"), 0.8);
 bindZoomHold($("zoom-in"), 1.25);
 $("zoom-level").addEventListener("click", () => fitView());
@@ -2429,6 +2471,10 @@ $("show-ids").addEventListener("change", (e) => {
 });
 $("show-comments").addEventListener("change", (e) => {
   app.show.comments = e.target.checked;
+  renderMarkers();
+});
+$("show-flags").addEventListener("change", (e) => {
+  app.show.flags = e.target.checked;
   renderMarkers();
 });
 $("snap").addEventListener("change", (e) => (app.show.snap = e.target.checked));

@@ -362,6 +362,38 @@ h2 .count {
 #status-msg.error {
   color: #b00020;
 }
+#about-btn {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #8b949e;
+  padding: 0 2px;
+}
+#about-btn:hover {
+  background: transparent;
+  color: #1565c0;
+  text-decoration: underline;
+}
+#about-dialog {
+  width: 440px;
+}
+#about-dialog .about-name {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 20px;
+  color: #1d2329;
+  margin-bottom: 2px;
+}
+#about-dialog .about-tag {
+  margin-top: 0;
+  font-style: italic;
+}
+#about-dialog p {
+  margin: 8px 0;
+}
+#about-dialog a {
+  color: #1565c0;
+}
 
 dialog {
   border: 1px solid #b8c0c8;

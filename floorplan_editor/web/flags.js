@@ -16,7 +16,7 @@ export function getFlag(id) {
 }
 
 export function flagsMarkup() {
-  if (!app.plan) return "";
+  if (!app.plan || !app.show.flags) return "";
   const k = 1 / app.view.z;
   const regions = [];
   const pins = [];

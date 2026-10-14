@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>floorplan editor</title>
+    <title>Floor Plan-It</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
@@ -83,6 +83,7 @@
         <details id="flags-panel" open>
           <summary><h2>Flags <span id="flag-count" class="count"></span></h2></summary>
           <p class="note">Flags are numbered pins for pointing at things. Drop one (F), add a note, and tell Cursor “look at F3”. Cursor reads them, and can drop its own.</p>
+          <label class="row"><input type="checkbox" id="show-flags" checked /> Show flags on the drawing</label>
           <ul id="flags-list"></ul>
           <div class="row wrap">
             <button id="flags-add" class="flag-tool">Drop a flag (F)</button>
@@ -154,6 +155,7 @@
       <span id="status-snap"></span>
       <span id="status-zoom"></span>
       <span id="status-file"></span>
+      <button id="about-btn" type="button" title="About Floor Plan-It">Floor Plan-It</button>
     </footer>
 
     <div id="toast" role="status" aria-live="polite"></div>
@@ -169,6 +171,27 @@
     </div>
     <input type="file" id="upload" accept=".json,.png,.jpg,.jpeg" multiple hidden />
     <input type="file" id="floor-upload" accept=".json,.png,.jpg,.jpeg" multiple hidden />
+
+    <dialog id="about-dialog" aria-labelledby="about-name">
+      <form method="dialog">
+        <h2 id="about-name" class="about-name">Floor Plan-It</h2>
+        <p class="about-tag">A floor plan editor. You trace the sheet, and then you plan it.</p>
+        <p>Version 0.1.0</p>
+        <p>Draw walls, doors, windows, and fixtures over a floor plan image, measure them in inches, and save the plan as data.</p>
+        <p>Source code: <a href="https://github.com/armedad/floorplan-editor" target="_blank" rel="noopener">github.com/armedad/floorplan-editor</a></p>
+        <p>
+          <a href="/agents" target="_blank" rel="noopener">Instructions for an AI harness</a>
+          (<a href="https://github.com/armedad/floorplan-editor/blob/main/AGENTS.md" target="_blank" rel="noopener">on GitHub</a>).
+        </p>
+        <p>
+          Licensed under the <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License v3.0</a>.
+          You can use, share, and change it under those terms. There is no warranty.
+        </p>
+        <div class="row right">
+          <button value="close" class="primary">Close</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="new-dialog">
       <form method="dialog" id="new-form">

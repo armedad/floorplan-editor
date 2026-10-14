@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { clickMeasures, placePoint, rayHits, tapeEdges } from "../../floorplan_editor/web/tape.js";
+import { alignPoint, clickMeasures, placePoint, rayHits, tapeEdges } from "../../floorplan_editor/web/tape.js";
 
 function room() {
   return {
@@ -50,4 +50,16 @@ test("drag snaps to an edge and straightens when nearly level", () => {
   assert.deepEqual(face, { x: 50, y: 0, kind: "edge" });
   const far = placePoint(edges, 50, 100, 8);
   assert.deepEqual(far, { x: 50, y: 100, kind: "free" });
+});
+
+test("a new corner lines up with vertical and horizontal edges on their own", () => {
+  const edges = tapeEdges({
+    walls: [
+      { id: "v", x1: 40, y1: 0, x2: 40, y2: 100, thickness: 0 },
+      { id: "h", x1: 0, y1: 70, x2: 100, y2: 70, thickness: 0 },
+    ],
+  });
+  assert.deepEqual(alignPoint(edges, 44, 66, 8), { x: 40, y: 70, kind: "edge" });
+  assert.deepEqual(alignPoint(edges, 10, 66, 8), { x: 10, y: 70, kind: "edge" });
+  assert.deepEqual(alignPoint(edges, 10, 10, 8), { x: 10, y: 10, kind: "free" });
 });

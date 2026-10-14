@@ -22,6 +22,21 @@ def client(sample_folder):
     return TestClient(create_app(sample_folder))
 
 
+def test_harness_instructions_are_the_guide():
+    from floorplan_editor.agents import instructions_text
+
+    guide = instructions_text()
+    assert "list_flags" in guide and "view_image" in guide
+    assert m.mcp.instructions == guide
+
+
+def test_agents_page_serves_the_guide(client):
+    page = client.get("/agents")
+    assert page.status_code == 200
+    assert "list_flags" in page.text and "<h1>" in page.text
+    assert 'href="/agents"' in client.get("/").text
+
+
 def test_version_bumps_and_ui_queue(client):
     v0 = client.get("/api/state").json()["version"]
     state = client.post("/api/op", json={"op": {"op": "delete", "kind": "walls", "id": "column"}}).json()

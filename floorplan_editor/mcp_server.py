@@ -26,6 +26,7 @@ from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.fastmcp.exceptions import ToolError
 from PIL import Image as PILImage
 
+from .agents import instructions_text
 from .engine.analyze import object_box, union_box
 from .engine.geometry import along, distance_to_wall, format_length, project, wall_length
 from .engine.model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS, comments_of
@@ -39,31 +40,11 @@ Kind = Literal["walls", "openings", "counters", "fixtures", "labels", "erase", "
 mcp = FastMCP(
     "floorplan-editor",
     log_level="WARNING",
-    instructions=(
-        "Drives the floorplan editor: a local web app that edits floor plan JSON (walls, doors, "
-        "windows, counters, fixtures, labels, erase regions) laid over a source sheet image. "
-        "Coordinates are inches; x grows right and y grows down, like the sheet. "
-        "Start with editor_status (or start_editor with a folder, or open_anything with any file). "
-        "The user drops numbered flags (F1, F2, ...) on the drawing to point at things; when they "
-        "mention a flag, call list_flags to see where it is and what is under it, and "
-        "view_image(flag=...) to look. When they say 'this' or 'what I selected', call get_selection. "
-        "Use find_objects to locate things by position, and view_image to look at the sheet, overlay, "
-        "or plan (crop with a region in inches; cropped views label every object's id, so you can name "
-        "them). Objects are referenced by id (w12, toilet-1); labels as labels:<index>. "
-        "A traced plan is mostly walls: convert_objects turns traced pieces into doors, windows, "
-        "fixtures, counters, labels, or erase regions; merge_walls and find_stacked_walls join thin "
-        "bars that are one thick wall; find_stray_bits finds traced letters; set_wall_thickness sets "
-        "thickness keeping a chosen face. Edits stay in memory until save; save mode 'step' writes the "
-        "next plan-stepN.json. The user's browser, if open, updates live. Mark a flag done with "
-        "update_flag once it's handled. "
-        "Objects can carry comments (c1, c2, ...) that the user or you wrote about them; they live in "
-        "the plan with their object. list_comments reads them (all, or on given objects or the "
-        "selection); add_comment, update_comment, and delete_comments change them. When the user asks "
-        "what's noted on something, or to handle the comments, call list_comments. "
-        "One file can hold several floors of a building: floors lists, switches, adds (from a plan "
-        "or a traced image), renames, and reorders them, and every other tool works on the floor being "
-        "edited. export_jpeg stacks every floor in one picture; save mode 'folder' copies the whole "
-        "file with its sheets into a new folder."
+    instructions=instructions_text()
+    or (
+        "Drives the floorplan editor. Coordinates are inches; x grows right and y grows down. "
+        "Start with editor_status. Flags are how the user points; list_flags and view_image(flag=...) "
+        "to look. 'This' means get_selection."
     ),
 )
 

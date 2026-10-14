@@ -160,6 +160,25 @@ function axisCrossing(edges, x, y, axis, tol) {
 }
 
 /**
+ * Line a point up with nearby edges: x with a vertical edge, y with a horizontal one,
+ * independently, so a corner can meet both. Otherwise the nearest point on any edge.
+ */
+export function alignPoint(edges, x, y, tol) {
+  let bestX = null;
+  let bestY = null;
+  for (const [[ax, ay], [bx, by]] of edges) {
+    const hit = closest(x, y, ax, ay, bx, by);
+    if (hit.d > tol) continue;
+    const dx = Math.abs(bx - ax);
+    const dy = Math.abs(by - ay);
+    if (dy >= dx && (!bestX || Math.abs(hit.x - x) < bestX.d)) bestX = { d: Math.abs(hit.x - x), x: hit.x };
+    if (dx >= dy && (!bestY || Math.abs(hit.y - y) < bestY.d)) bestY = { d: Math.abs(hit.y - y), y: hit.y };
+  }
+  if (bestX || bestY) return { x: round2(bestX ? bestX.x : x), y: round2(bestY ? bestY.y : y), kind: "edge" };
+  return placePoint(edges, x, y, tol);
+}
+
+/**
  * Snap a point onto a nearby edge. With an anchor, a drag close to horizontal or vertical
  * locks to that axis and then snaps along it.
  */

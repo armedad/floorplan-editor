@@ -188,36 +188,37 @@ pastes at the pointer.
 - **Wall (W).** Click each corner. After the first click you can type instead of clicking:
   a length goes toward the pointer (`10'6"`), a length and angle goes that way (`8'<90`,
   degrees counterclockwise from right), and `48, -12` goes right and up by those amounts.
-  Shift keeps a segment straight. Double-click, Enter, or Esc stops.
-- **Door (D)** and **Window (N).** Click on a wall to drop one there. Type a number first
+  A corner snaps to the nearest wall, counter, or fixture, and the segment straightens when it is close to horizontal or vertical. Hold Ctrl to place it exactly where the pointer is; Shift forces it straight even from farther away. Double-click, Enter, or Esc stops.
+- **Door (D)** and **Window (N).** Click on a wall to drop one there. The click snaps to the nearest wall; hold Ctrl to use only the wall under the pointer. Type a number first
   to change the width. Click in the gap between two walls in line (a traced doorway) and
   the two walls join into one with the door filling the gap. With a door selected, S flips
   the swing and H flips the hinge side.
 - **Counter (C).** Drag a rectangle, or click one corner and type `width, depth` (`25, 60`).
+  Corners snap to nearby walls, counters, and fixtures. Hold Ctrl to place one exactly where the pointer is.
 - **Outline (P).** Click each corner of a counter of any shape, such as an L, or type the
-  edges like walls. Double-click or Enter closes it. Backspace removes the last corner.
+  edges like walls. Corners snap the same way walls do. Double-click or Enter closes it. Backspace removes the last corner.
 - **Fixture (X).** Pick a type and a rotation in the toolbar, then click to place it at its
-  usual size, or drag a box over the printed symbol to fit it. A fixture's center is the
+  usual size, or drag a box over the printed symbol to fit it. The point snaps to a nearby wall, counter, or fixture; hold Ctrl to place it exactly. A fixture's center is the
   point it rotates around. Types are refrigerator,
   range, oven, dishwasher, toilet, tub, soaking tub, shower, sink, washer, dryer,
   washer/dryer, stool, fireplace (hatched), cabinet (a tall cabinet or pantry, drawn with a diagonal), upper
   cabinet, and generic. Base cabinets and islands are counters. R turns the next placement,
   or a selected fixture, 90°.
-- **Label (T).** Click where the label goes and type it. Text typed in the toolbar box is
+- **Label (T).** Click where the label goes and type it. The point snaps to a nearby wall, counter, or fixture; hold Ctrl to place it exactly. Text typed in the toolbar box is
   reused for every click, for dropping the same label several times.
-- **Erase (E).** Drag a rectangle over printed ink on the sheet. The region whites out that
+- **Erase (E).** Drag a rectangle over printed ink on the sheet. Corners snap like a counter; hold Ctrl to place them exactly. The region whites out that
   ink in the editor and in every saved overlay. It's stored in the plan, so it can be
   moved, resized, or deleted later.
 - **Scale (K).** Click both ends of a length printed on the sheet, then type that length,
   such as `26'5"`. This sets how many sheet pixels make an inch.
 - **Measure (M).** Drag to measure a distance. Each end snaps to the nearest wall, counter,
-  or fixture, and the line straightens when it is close to horizontal or vertical. Moving
+  or fixture, and the line straightens when it is close to horizontal or vertical. Hold Ctrl to measure exactly where you drag. Moving
   the pointer shows a dotted line to the first edge in each direction; a click keeps the
   horizontal and vertical ones. Drag an end to move that end, or the middle to slide the
   whole line. M measures when nothing is selected, and moves the selection when something is.
 - **Flag (F).** Drop a numbered flag; see the next section.
 
-Snapping is on by default. Points snap to wall ends and wall faces, then to a 1-inch grid.
+Snapping is on by default. While you add a wall, door, window, counter, outline, fixture, label, or erase region, the point snaps to the nearest wall, counter, or fixture, and a new wall or outline side straightens when it is close to horizontal or vertical. Hold Ctrl to place it exactly where the pointer is. Editing a point snaps to wall ends and wall faces, then to a 1-inch grid.
 Both can be turned off under **View** in the side panel, which also controls the sheet
 image, its opacity, the measurements on the selection, object ids, and whether erase
 regions are shown.
@@ -499,6 +500,10 @@ any MCP client) full control of the editor. It talks to the running editor's API
 Cursor's edits land in the same document your browser shows. An open browser updates
 live: the plan redraws, the object Cursor touched is selected, and the status bar says
 what Cursor did.
+
+How a harness should behave — flags, comments, the selection, when to look, and when to
+save — is [AGENTS.md](AGENTS.md). The server loads that file and gives it to the harness
+as its instructions. The editor's About box links to the same page.
 
 Add it to `~/.cursor/mcp.json` (on Chee's machine it's already there):
 

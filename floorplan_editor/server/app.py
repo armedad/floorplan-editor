@@ -26,10 +26,11 @@ import webbrowser
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
+from ..agents import instructions_html
 from ..engine import PlanError, checked, draw_png, is_building, load_plan, scene, validate_plan
 from ..engine.analyze import lookup, stray_bits, wall_groups
 from ..engine.building import FIRST_FLOOR, as_building, export_image, floor_by_id, floor_label, floors_of, next_floor_id
@@ -732,6 +733,13 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
     @app.get("/")
     def index():
         return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-store"})
+
+    @app.get("/agents")
+    def agents_page():
+        page = instructions_html()
+        if not page:
+            raise HTTPException(404, "the harness instructions are missing")
+        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/state")
     def get_state():
