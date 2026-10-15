@@ -6,6 +6,7 @@ its overlay, so a step always has the same four files.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,8 +36,22 @@ def _order(name: str) -> tuple[int, int, str]:
     return (2, 0, name)
 
 
+def _saved_plan(path: Path) -> bool:
+    """A plan saved under a name that is not plan-*.json. Flag files are not plans."""
+    if path.name.startswith("flags") or path.name.startswith("."):
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    return isinstance(data, dict) and ("canvas" in data or "floors" in data)
+
+
 def list_plans(folder: Path) -> list[str]:
-    names = [p.name for p in Path(folder).glob("plan*.json") if PLAN_RE.match(p.name)]
+    names = []
+    for path in Path(folder).glob("*.json"):
+        if PLAN_RE.match(path.name) or _saved_plan(path):
+            names.append(path.name)
     return sorted(names, key=_order)
 
 

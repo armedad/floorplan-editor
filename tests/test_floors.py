@@ -174,6 +174,12 @@ def test_save_export_and_save_to_folder(client, upper, sample_folder, tmp_path):
     assert len(state["floors"]) == 2 and state["file"] == "plan.json"
     assert client.post("/api/save", json={"mode": "folder", "path": str(target)}).status_code == 409
 
+    dest = tmp_path / "copies"
+    state = client.post("/api/save", json={"mode": "as", "name": "house-copy", "folder": str(dest)}).json()
+    assert state["file"] == "house-copy.json" and state["folder"] == str(dest.resolve())
+    assert len(state["floors"]) == 2
+    assert {"house-copy.json", "sheet.png", "floor-2.png"} <= {p.name for p in dest.iterdir()}
+
 
 def test_flags_are_kept_per_floor(client, upper, sample_folder):
     client.post("/api/flags", json={"action": "add", "x": 10, "y": 10, "note": "ground"})

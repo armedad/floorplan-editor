@@ -29,7 +29,7 @@ import { loadSheetInk, placeLabels } from "./placement.js";
 import { initPanels, renderFiles, renderProps } from "./panels.js";
 import { hideTip, initTips } from "./help.js";
 import { applyAppearance, initSettings, syncPlanOverrides } from "./settings.js";
-import { $, popInput, popOpen } from "./ui.js";
+import { $, popInput, popOpen, showMenu } from "./ui.js";
 
 const svg = $("svg");
 const world = $("world");
@@ -742,7 +742,7 @@ function updateToolbar() {
   $("undo").disabled = !s || !s.can_undo;
   $("redo").disabled = !s || !s.can_redo;
   $("save").disabled = !s || !s.plan;
-  $("save-step").disabled = !s || !s.plan;
+  $("save-more").disabled = !s || !s.plan;
   for (const b of document.querySelectorAll("#tools button")) {
     const on = b.dataset.tool === app.tool;
     b.classList.toggle("active", on);
@@ -750,6 +750,23 @@ function updateToolbar() {
   }
   const file = s && s.file ? `${s.file}${s.dirty ? " •" : ""}` : "no plan";
   $("status-file").textContent = file;
+  const bar = $("pathbar");
+  if (s && s.folder) {
+    const sep = s.folder.includes("\\") ? "\\" : "/";
+    const folder = s.folder.endsWith(sep) ? s.folder : s.folder + sep;
+    const name = s.file || "no plan";
+    $("path-folder").textContent = folder;
+    const fileEl = $("path-file");
+    fileEl.textContent = name;
+    fileEl.classList.toggle("dirty", !!(s.file && s.dirty));
+    const full = s.file ? folder + name : s.folder;
+    bar.title = full;
+    bar.hidden = false;
+    $("status-file").title = full;
+  } else {
+    bar.hidden = true;
+    $("status-file").title = "";
+  }
   document.title = `${s && s.dirty ? "• " : ""}${s && s.file ? s.file : "Floor Plan-It"}`;
 }
 
@@ -1977,16 +1994,70 @@ export async function save(mode = "overwrite", name) {
 }
 
 export function saveAs() {
-  if (!app.plan) return;
-  const [sx, sy] = stageCenter();
-  popInput({
-    x: sx,
-    y: sy - 60,
-    label: "Save as (a .json name in this folder)",
-    value: app.state.file || "plan.json",
-    hint: "Enter saves. Rendered PNG and overlay files are written next to it.",
-    onCommit: (text) => text.trim() && save("as", text.trim()),
-  });
+  if (!app.plan || !app.state) return;
+  const current = app.state.file || "plan.json";
+  const folder = (app.state.save_folder || "").trim() || app.state.folder || "";
+  $("saveas-name").value = current;
+  $("saveas-folder").value = folder;
+  $("saveas-dialog").showModal();
+  const input = $("saveas-name");
+  input.focus();
+  if (input.value.toLowerCase().endsWith(".json")) input.setSelectionRange(0, input.value.length - 5);
+  else input.select();
+}
+
+function showSaveMenu(anchor) {
+  const r = anchor.getBoundingClientRect();
+  const step = ((app.state && app.state.next_step) || "plan-step1.json").replace(/\.json$/i, "");
+  showMenu(
+    [
+      { label: `Save as ${step}`, keys: "Ctrl+Shift+S", title: "Save the next numbered step and switch to it", run: () => save("step") },
+      { label: "Save as…", title: "Choose the file name and the folder", run: () => saveAs() },
+    ],
+    r.left,
+    r.bottom + 2,
+  );
+}
+
+function sameFolder(a, b) {
+  const norm = (p) => String(p || "").replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
+  return norm(a) === norm(b);
+}
+
+async function commitSaveAs() {
+  let name = $("saveas-name").value.trim().replace(/^"|"$/g, "");
+  const folder = $("saveas-folder").value.trim().replace(/^"|"$/g, "");
+  if (!name) return message("Type a file name.", true);
+  if (!name.toLowerCase().endsWith(".json")) name += ".json";
+  if (!folder || sameFolder(folder, app.state.folder)) {
+    if (name !== app.state.file && (app.state.files || []).includes(name)) {
+      if (!confirm(`Replace the existing ${name}?`)) return;
+    }
+    $("saveas-dialog").close();
+    await save("as", name);
+    return;
+  }
+  $("saveas-dialog").close();
+  await saveCopy(name, folder, false);
+}
+
+async function saveCopy(name, folder, replace) {
+  try {
+    await api("/api/prefs");
+  } catch (err) {
+    message("Restart the editor before saving into another folder. This one is still the previous version.", true);
+    return;
+  }
+  try {
+    const state = await api("/api/save", { mode: "as", name, folder, replace });
+    setState(state, { selectRef: false });
+  } catch (err) {
+    if (!replace && /already in that folder/i.test(err.message)) {
+      if (confirm(`${name} is already in that folder. Replace it?`)) return saveCopy(name, folder, true);
+      return;
+    }
+    message(err.message, true);
+  }
 }
 
 export function revert() {
@@ -2428,7 +2499,12 @@ $("toggle-side").addEventListener("click", toggleSide);
 $("undo").addEventListener("click", undo);
 $("redo").addEventListener("click", redo);
 $("save").addEventListener("click", () => save("overwrite"));
-$("save-step").addEventListener("click", () => save("step"));
+$("save-more").addEventListener("click", () => showSaveMenu($("save-more")));
+$("saveas-cancel").addEventListener("click", () => $("saveas-dialog").close());
+$("saveas-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  commitSaveAs();
+});
 initSettings();
 bindZoomHold($("zoom-out"), 0.8);
 bindZoomHold($("zoom-in"), 1.25);

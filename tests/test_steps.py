@@ -15,6 +15,9 @@ def test_list_and_next_step(sample_folder):
         "plan-merged.json",
     ]
     assert next_step_name(sample_folder) == "plan-step11.json"
+    (sample_folder / "golden-gate.json").write_text(json.dumps({"canvas": {}}), encoding="utf-8")
+    assert "golden-gate.json" in list_plans(sample_folder)
+    assert "notes.json" not in list_plans(sample_folder)
 
 
 def test_find_sheet(sample_folder):

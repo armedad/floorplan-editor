@@ -1203,7 +1203,7 @@ def save(
     """Save the open plan with its pictures (.svg, .png, -overlay.png; a building gets one stacked .png and overlay).
 
     mode 'overwrite' saves over the open file; 'step' writes the next plan-stepN.json and opens it;
-    'as' writes plan-<name>.json. 'folder' copies the whole file (every floor, with each floor's sheet
+    'as' writes name (a .json file name, or a stem that becomes plan-<name>.json). 'folder' copies the whole file (every floor, with each floor's sheet
     image and flags) into a new or empty folder as plan.json and opens it there: name is a folder
     name (made next to the current folder) or a full path. Overwriting plan.json while steps exist
     needs confirm_overwrite_base=true, since steps and merges are measured against it.
@@ -1219,7 +1219,7 @@ def save(
         raise ToolError("This would overwrite plan.json, the base the steps are built on. Save as a step, or pass confirm_overwrite_base=true.")
     if mode == "as" and not name:
         raise ToolError("mode 'as' needs a name")
-    if mode == "as" and not name.startswith("plan"):
+    if mode == "as" and not name.lower().endswith(".json") and not name.startswith("plan"):
         name = f"plan-{name}"
     state = _post("/api/save", {"mode": mode, "name": name})
     _note(f"saved {state.get('file')}")

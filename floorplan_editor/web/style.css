@@ -84,18 +84,72 @@ h2 {
 
 #toolbar {
   display: flex;
-  gap: 14px;
+  gap: 4px;
   align-items: center;
-  padding: 6px 10px;
+  min-width: 0;
+  padding: 1px 4px;
   background: #fff;
   border-bottom: 1px solid #ccd3da;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 #toolbar .group {
   display: flex;
-  gap: 4px;
+  gap: 0;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+#toolbar button {
+  padding: 2px 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: #1d2329;
+}
+#toolbar button:hover:not(:disabled) {
+  background: #eef1f4;
+}
+#toolbar button:disabled {
+  background: transparent;
+}
+#toolbar button.active {
+  background: #e8f0fa;
+  color: #0d47a1;
+  font-weight: 600;
+}
+#toolbar button.primary {
+  background: transparent;
+  color: #1565c0;
+  font-weight: 600;
+}
+#toolbar button.primary:hover:not(:disabled) {
+  background: #e8f0fa;
+  color: #0d47a1;
+}
+#toolbar .flag-tool.active {
+  color: #e65100;
+  background: #fff3e8;
+}
+#toolbar #save.saved {
+  background: transparent;
+  border-color: transparent;
+  color: #2e7d32;
+  font-weight: 600;
+}
+#toolbar .split-button > button {
+  border-radius: 3px;
+  margin-left: 0;
+}
+#toolbar .split-button > button:last-child {
+  padding: 2px 3px;
+}
+#toolbar > .split-button,
+#toolbar .right {
+  flex: none;
+}
+#tools {
+  min-width: 0;
+  overflow-x: auto;
 }
 #toolbar .right {
   margin-left: auto;
@@ -344,6 +398,39 @@ h2 .count {
   overflow-y: auto;
 }
 
+#pathbar {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 60px;
+  gap: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 4px;
+  background: transparent;
+  font-size: 12px;
+  user-select: text;
+}
+#pathbar[hidden] {
+  display: none;
+}
+#path-folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #5c6670;
+}
+#path-file {
+  flex: none;
+  font-weight: 600;
+  color: #1d2329;
+  white-space: nowrap;
+}
+#path-file.dirty::after {
+  content: " •";
+  font-weight: 400;
+  color: #5c6670;
+}
 #status {
   display: flex;
   gap: 18px;
@@ -373,6 +460,14 @@ h2 .count {
   background: transparent;
   color: #1565c0;
   text-decoration: underline;
+}
+#saveas-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+#saveas-name,
+#saveas-folder,
+#save-folder-default {
+  width: 100%;
 }
 #settings-dialog {
   width: min(640px, calc(100vw - 32px));
@@ -884,26 +979,37 @@ button.flag-tool:hover {
 /* floors of the open file, over the drawing's top left */
 #floorbar {
   position: absolute;
-  top: 6px;
-  left: 6px;
+  top: 4px;
+  left: 4px;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 0;
   align-items: center;
-  max-width: calc(100% - 12px);
-  padding: 3px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  max-width: calc(100% - 8px);
+  padding: 1px 2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
   font-size: 12px;
   z-index: 4;
 }
 #floorbar[hidden] {
   display: none;
 }
+#floorbar button {
+  padding: 2px 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: #1d2329;
+}
+#floorbar button:hover:not(:disabled) {
+  background: #eef1f4;
+  text-decoration: none;
+}
 #floorbar .floor-building {
-  padding: 0 6px;
+  padding: 2px 6px;
   font-weight: 600;
+  color: #37414b;
   flex-shrink: 0;
   max-width: 220px;
   overflow: hidden;
@@ -913,23 +1019,25 @@ button.flag-tool:hover {
 #floorbar .floor-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: 0;
 }
-#floorbar .floor-tab {
-  border-color: transparent;
-  white-space: nowrap;
-}
-#floorbar .floor-tab:hover {
-  border-color: #b8c0c8;
-}
-#floorbar .floor-tab.active {
-  background: #1565c0;
-  border-color: #1565c0;
-  color: #fff;
-}
+#floorbar .floor-tab,
 #floorbar .floor-add,
 #floorbar .floor-export {
   white-space: nowrap;
+}
+#floorbar .floor-tab.active {
+  background: #e8f0fa;
+  color: #0d47a1;
+  font-weight: 600;
+}
+#floorbar .floor-add {
+  color: #1565c0;
+  font-weight: 600;
+}
+#floorbar .floor-add:hover {
+  background: #e8f0fa;
+  color: #0d47a1;
 }
 /* zoom, over the drawing's bottom right: out, current size, in */
 #zoombar {
@@ -989,10 +1097,7 @@ button.flag-tool:hover {
     display: none;
   }
   #tools button {
-    padding: 4px 7px;
-  }
-  #toolbar {
-    gap: 8px;
+    padding: 2px 5px;
   }
 }
 #actionbar .bar-title {
@@ -1030,13 +1135,17 @@ button.danger:hover {
 .split-button {
   gap: 0 !important;
 }
-.split-button #open {
+.split-button > button:first-child {
   border-radius: 4px 0 0 4px;
 }
-.split-button #open-more {
+.split-button > button:last-child {
   border-radius: 0 4px 4px 0;
+  margin-left: -1px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.split-button > .primary + button {
   border-left-color: rgba(255, 255, 255, 0.4);
-  padding: 4px 6px;
 }
 
 /* drop target */
@@ -1212,6 +1321,7 @@ button.danger:hover {
   margin-top: 6px;
   font-size: 11px;
   color: #5c6670;
+  overflow-wrap: anywhere;
 }
 #pop .pop-warn {
   margin-top: 6px;

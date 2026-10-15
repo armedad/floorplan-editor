@@ -34,8 +34,10 @@ export function applyAppearance(appearance, plan) {
 export function initSettings() {
   $("about-btn").addEventListener("click", () => {
     showTab("about");
+    $("save-folder-default").value = (app.state && app.state.save_folder) || "";
     $("settings-dialog").showModal();
   });
+  $("save-folder-default").addEventListener("change", saveDefaultFolder);
   $("settings-dialog").addEventListener("click", (e) => {
     if (e.target === $("settings-dialog")) $("settings-dialog").close();
   });
@@ -50,6 +52,18 @@ export function initSettings() {
     applyAppearance(appearance, app.plan);
     postAppearance(appearance);
   });
+}
+
+async function saveDefaultFolder() {
+  const folder = $("save-folder-default").value.trim().replace(/^"|"$/g, "");
+  try {
+    const saved = await api("/api/prefs", { save_folder: folder });
+    if (app.state) app.state.save_folder = saved.save_folder;
+    $("save-folder-default").value = saved.save_folder;
+    message(saved.save_folder ? `Save as… will start in ${saved.save_folder}` : "Save as… will start in the folder you have open");
+  } catch (err) {
+    message(err.message === "Not Found" ? "Restart the editor to keep a default save folder." : err.message, true);
+  }
 }
 
 function showTab(id) {

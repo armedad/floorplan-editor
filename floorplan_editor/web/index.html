@@ -26,12 +26,17 @@
         <button id="tool-flag" data-tool="flag" class="flag-tool" title="Drop a numbered flag to point Cursor at a spot or area (F)">Flag <kbd>F</kbd></button>
       </div>
       <div class="group" id="tool-options"></div>
+      <div id="pathbar" hidden>
+        <span id="path-folder"></span><span id="path-file"></span>
+      </div>
       <div class="group right">
         <button id="palette-btn" title="Every command and its shortcut (Ctrl+K)">Commands <kbd>Ctrl+K</kbd></button>
         <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
         <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
-        <button id="save" title="Save over the open file (Ctrl+S)">Save</button>
-        <button id="save-step" title="Save as the next plan-stepN.json (Ctrl+Shift+S)">Save as new step</button>
+        <div class="group split-button" id="save-split">
+          <button id="save" title="Save over the open file (Ctrl+S)">Save</button>
+          <button id="save-more" title="Save as the next step, or save a copy under a new name" aria-label="more ways to save">▾</button>
+        </div>
         <button id="toggle-side" title="Show or hide the side panel (\)" aria-label="toggle side panel">◧</button>
       </div>
     </header>
@@ -183,6 +188,10 @@
         <div id="settings-about" role="tabpanel">
           <h2 class="about-name">Floor Plan-It</h2>
           <p class="about-tag">A floor plan editor. You trace the sheet, and then you plan it.</p>
+          <label>Default save folder
+            <input id="save-folder-default" spellcheck="false" autocomplete="off" placeholder="The folder you have open" />
+          </label>
+          <p class="note">Save as… starts in this folder. Leave it blank to start in whichever folder you have open.</p>
           <p>Version 0.1.0</p>
           <p>Draw walls, doors, windows, and fixtures over a floor plan image, measure them in inches, and save the plan as data.</p>
           <p>Source code: <a href="https://github.com/armedad/floorplan-editor" target="_blank" rel="noopener">github.com/armedad/floorplan-editor</a></p>
@@ -207,6 +216,19 @@
         </div>
         <div class="row right">
           <button type="button" id="settings-close" class="primary">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="saveas-dialog" aria-labelledby="saveas-title">
+      <form id="saveas-form">
+        <h2 id="saveas-title">Save as</h2>
+        <label>File name<input id="saveas-name" spellcheck="false" autocomplete="off" /></label>
+        <label>Folder<input id="saveas-folder" spellcheck="false" autocomplete="off" /></label>
+        <p class="note">Pictures are written next to the file. Saving into another folder copies the sheet images, then opens that folder.</p>
+        <div class="row right">
+          <button type="button" id="saveas-cancel">Cancel</button>
+          <button type="submit" id="saveas-go" class="primary">Save</button>
         </div>
       </form>
     </dialog>

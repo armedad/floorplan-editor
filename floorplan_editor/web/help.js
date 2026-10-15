@@ -111,6 +111,7 @@ export const HELP = {
   undo: { tip: "Undo", keys: "Ctrl+Z" },
   redo: { tip: "Redo", keys: "Ctrl+Y" },
   save: { tip: "Save over the open file", keys: "Ctrl+S", more: ["Saving also writes a matching .svg, .png, and -overlay.png. Edits are kept by the server until then, so reloading the page doesn't lose them, but stopping the server does."] },
+  "save-more": { tip: "Save as the next step, or save a copy under a new name and folder" },
   "save-step": {
     tip: "Save as the next plan-stepN.json",
     keys: "Ctrl+Shift+S",
@@ -219,7 +220,11 @@ export const HELP = {
       "Steps built one on top of another already include each other; merge steps that each started from plan.json.",
     ],
   },
-  "save-as": { tip: "Save under a new file name" },
+  "save-as": {
+    tip: "Save a copy under a name and folder you choose",
+    more: ["The pictures (.png and the overlay) are written beside the file, and that file becomes the one open. A different folder is copied with its sheet images, then opened. The folder starts as the default from Settings, or the folder you have open."],
+  },
+  "save-folder-default": { tip: "Where Save as… starts. Blank means the folder you have open." },
   "save-folder": {
     tip: "Copy this file into a new folder as plan.json, with every floor's sheet image",
     more: [

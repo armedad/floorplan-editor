@@ -153,9 +153,10 @@ def test_editor_pages_offer_settings_and_the_read_api_answers(client):
     for tab in ("about", "commands", "customize"):
         assert f'data-settings-tab="{tab}"' in page
     assert "This plan" in page and 'href="/agents"' in page
+    assert 'id="save-more"' in page and 'id="saveas-dialog"' in page and "Default save folder" in page
     assert "list_flags" in client.get("/agents").text
 
-    for path in ("/api/state", "/api/appearance", "/api/sheet", "/api/overlay", "/api/render", "/api/selection", "/api/file/plan.json"):
+    for path in ("/api/state", "/api/appearance", "/api/prefs", "/api/sheet", "/api/overlay", "/api/render", "/api/selection", "/api/file/plan.json"):
         assert client.get(path).status_code == 200, path
     assert client.post("/api/op", json={"op": {"op": "nope"}}).status_code == 400
     assert client.post("/api/appearance", json={"groups": []}).status_code == 400

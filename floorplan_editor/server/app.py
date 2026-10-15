@@ -38,6 +38,7 @@ from ..engine.building import FIRST_FLOOR, as_building, export_image, floor_by_i
 from ..engine.edit import EditError, apply
 from ..engine.model import FIXTURE_TYPES, LIST_KEYS, compass_from_up
 from ..engine.overlay import apply_erase_regions, overlay_image
+from ..engine.prefs import load_prefs, save_prefs
 from ..engine.steps import (
     BASE_NAME,
     IMAGE_SUFFIXES,
@@ -233,11 +234,11 @@ class Document:
         if mode == "step":
             name = next_step_name(self.folder)
         elif mode == "as":
-            name = str(name or "").strip()
-            if not name.endswith(".json"):
+            name = str(name or "").strip().strip('"')
+            if not name.lower().endswith(".json"):
                 name += ".json"
-            if not PLAN_RE.match(name):
-                raise HTTPException(400, "plan files are named plan.json or plan-<something>.json")
+            if name.lower().startswith("flags"):
+                raise HTTPException(400, "that name is used for flag notes")
         else:
             name = self.file or BASE_NAME
         errors = validate_plan(self.data)
@@ -247,6 +248,78 @@ class Document:
         self.file, self.saved = name, copy.deepcopy(self.data)
         self.bump()
         return {"files": result.files, "warnings": result.warnings}
+
+    def save_as(self, name: str | None, folder: str | None, replace: bool = False) -> dict:
+        """Save a copy under `name` in `folder`. The current folder just renames the open file.
+        Another folder gets the sheet images too, and the editor opens it."""
+        self.require_plan()
+        filename = self._save_name(name)
+        target = self._save_dir(folder)
+        if target == self.folder.resolve():
+            return self.save_plan("as", filename)
+        dest = target / filename
+        if dest.exists() and not replace:
+            raise HTTPException(409, f"{filename} is already in that folder")
+        if dest.exists() and not dest.is_file():
+            raise HTTPException(400, f"{filename} is already in that folder and is not a file")
+        errors = validate_plan(self.data)
+        if errors:
+            raise HTTPException(400, {"errors": errors})
+        target.mkdir(parents=True, exist_ok=True)
+        single_sheet = self._copy_project_assets(target)
+        result = write_outputs(self.data, dest, single_sheet, None)
+        floor = self.floor
+        self.open_folder(target)
+        self.open_file(filename)
+        self.floor = min(floor, len(floors_of(self.data)) - 1)
+        self._sync_flags()
+        return {"folder": str(target), "files": result.files, "warnings": result.warnings}
+
+    def _save_name(self, name: str | None) -> str:
+        filename = str(name or "").strip().strip('"')
+        if not filename.lower().endswith(".json"):
+            filename += ".json"
+        if filename.lower().startswith("flags"):
+            raise HTTPException(400, "that name is used for flag notes")
+        self._path(filename)
+        return filename
+
+    def _save_dir(self, folder: str | None) -> Path:
+        raw = str(folder or "").strip().strip('"')
+        if not raw:
+            return self.folder.resolve()
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            base = load_prefs()["save_folder"]
+            root = Path(base).expanduser() if base else self.folder
+            path = root / path
+        path = path.resolve()
+        if path.exists() and not path.is_dir():
+            raise HTTPException(400, f"{path} is not a folder")
+        return path
+
+    def _copy_project_assets(self, target: Path) -> Path | None:
+        """Sheet images and flag notes, so a copy opened in `target` still has its drawing."""
+        single = None
+        if is_building(self.data):
+            for floor in self.data["floors"]:
+                source = self.folder / floor["sheet"] if floor.get("sheet") else None
+                if source and source.is_file():
+                    dest_sheet = target / floor["sheet"]
+                    dest_sheet.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, dest_sheet)
+        else:
+            source = self.sheet
+            if source and source.is_file():
+                stored = self.data.get("sheet") or (
+                    source.name if not source.name.startswith(("plan", "_")) else f"sheet{source.suffix.lower()}"
+                )
+                shutil.copyfile(source, target / stored)
+                single = target / stored
+        for flags in self.folder.glob("flags*.json"):
+            if flags.is_file():
+                shutil.copyfile(flags, target / flags.name)
+        return single
 
     def save_to_folder(self, raw: str) -> dict:
         """Write the open file as plan.json in a new folder, with its sheet images and flags, and open it there."""
@@ -693,6 +766,7 @@ class Document:
             "flags": self.flags.listing(plan["canvas"] if plan else None),
             "workspace": str(workspace()),
             "recent": recent_folders(),
+            "save_folder": load_prefs()["save_folder"],
             **extra,
         }
 
@@ -742,6 +816,21 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
         if not page:
             raise HTTPException(404, "the harness instructions are missing")
         return HTMLResponse(page, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/prefs")
+    def get_prefs():
+        return load_prefs()
+
+    @app.post("/api/prefs")
+    def post_prefs(body: dict = Body(...)):
+        """The default folder Save as… starts in. Empty means the folder that is open."""
+        try:
+            saved = save_prefs(body)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        with doc.lock:
+            doc.bump()
+        return saved
 
     @app.get("/api/appearance")
     def get_appearance():
@@ -909,6 +998,9 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
         with doc.lock:
             if body.get("mode") == "folder":
                 saved = doc.save_to_folder(body.get("path") or body.get("name"))
+                return doc.state(saved=saved)
+            if body.get("mode") == "as" and str(body.get("folder") or "").strip():
+                saved = doc.save_as(body.get("name"), body.get("folder"), replace=bool(body.get("replace")))
                 return doc.state(saved=saved)
             saved = doc.save_plan(body.get("mode", "overwrite"), body.get("name"))
             return doc.state(saved=saved)

@@ -67,8 +67,6 @@ export function renderFiles(appRef) {
   }
   if (!s.files.length) list.append(el("li", { class: "note" }, "No plan files here yet."));
   if (s.file && !s.files.includes(s.file)) list.append(el("li", { class: "current" }, `${s.file} (not saved yet)`));
-  $("save-step").title = `Save as ${s.next_step} (Ctrl+Shift+S)`;
-  $("save-step").textContent = `Save as ${s.next_step.replace(".json", "")}`;
   const saved = $("saved-files");
   saved.replaceChildren();
   if (s.saved) {

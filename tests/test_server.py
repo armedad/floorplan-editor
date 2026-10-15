@@ -59,6 +59,50 @@ def test_save_step_and_merge(client, sample_folder):
     assert "column" not in {w["id"] for w in merged["walls"]}
 
 
+def test_save_as_any_json_name(client, sample_folder):
+    state = client.post("/api/save", json={"mode": "as", "name": "golden-gate"}).json()
+    assert state["file"] == "golden-gate.json"
+    assert "golden-gate.json" in state["files"]
+    assert (sample_folder / "golden-gate.json").exists()
+    assert (sample_folder / "golden-gate-overlay.png").exists()
+    refused = client.post("/api/save", json={"mode": "as", "name": "flags.json"})
+    assert refused.status_code == 400
+
+
+def test_save_as_into_another_folder(client, sample_folder, tmp_path):
+    dest = tmp_path / "copies"
+    state = client.post("/api/save", json={"mode": "as", "name": "copy-plan", "folder": str(dest)}).json()
+    assert state["file"] == "copy-plan.json"
+    assert state["folder"] == str(dest.resolve())
+    assert (dest / "copy-plan.json").is_file()
+    assert (dest / "sheet.png").is_file()
+    assert (dest / "copy-plan-overlay.png").is_file()
+    assert not (sample_folder / "copy-plan.json").exists()
+    client.post("/api/folder", json={"path": str(sample_folder)})
+    clash = client.post("/api/save", json={"mode": "as", "name": "copy-plan", "folder": str(dest)})
+    assert clash.status_code == 409
+    replaced = client.post("/api/save", json={"mode": "as", "name": "copy-plan", "folder": str(dest), "replace": True})
+    assert replaced.status_code == 200
+    assert replaced.json()["file"] == "copy-plan.json"
+
+
+def test_default_save_folder_and_relative_save_as(client, tmp_path):
+    blocked = tmp_path / "not-a-folder"
+    blocked.write_text("x", encoding="utf-8")
+    assert client.post("/api/save", json={"mode": "as", "name": "nope", "folder": str(blocked)}).status_code == 400
+    root = tmp_path / "defaults"
+    saved = client.post("/api/prefs", json={"save_folder": str(root)}).json()
+    assert saved["save_folder"] == str(root)
+    assert client.get("/api/prefs").json() == {"save_folder": str(root)}
+    assert client.get("/api/state").json()["save_folder"] == str(root)
+    assert client.post("/api/prefs", json={"save_folder": 3}).status_code == 400
+    state = client.post("/api/save", json={"mode": "as", "name": "rel", "folder": "job"}).json()
+    assert state["folder"] == str((root / "job").resolve())
+    assert (root / "job" / "rel.json").is_file()
+    assert (root / "job" / "sheet.png").is_file()
+    assert client.post("/api/prefs", json={"save_folder": "  "}).json()["save_folder"] == ""
+
+
 def test_save_refuses_invalid_plan(client):
     client.post("/api/op", json={"op": {"op": "update", "kind": "walls", "id": "column", "fields": {"thickness": -1}}})
     response = client.post("/api/save", json={})
