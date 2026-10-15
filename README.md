@@ -52,6 +52,11 @@ python3 -m venv .venv
 .venv/bin/floorplan serve examples/sample
 ```
 
+On a Mac, Python from [python.org](https://www.python.org/downloads/) includes Tk, which the
+**Open…** dialog uses. Homebrew's `python3` often does not. The editor still runs; drop a
+file on the window, or use the browser's file picker from the arrow next to Open. Every
+shortcut below that says Ctrl also works with Command.
+
 Add `[dev]` after the `.` (`-e ".[dev]"`) if you want to run the tests. If `py` or `python3`
 is missing, install Python from [python.org](https://www.python.org/downloads/) first. You
 only create the venv once; after that, the last line is all you need to start the editor.
@@ -63,7 +68,8 @@ floorplan serve
 ```
 
 It starts a server on http://127.0.0.1:35667 and opens your browser. You can also give it a
-folder to start in (`floorplan serve C:\Users\CheeC\code\riverside-39c`). Options:
+folder to start in (`floorplan serve C:\Users\CheeC\code\riverside-39c`, or
+`floorplan serve ~/floorplans/riverside-39c` on a Mac). Options:
 
 - `--sheet PATH` picks the source image when the folder has more than one.
 - `--port N` uses another port.
@@ -87,8 +93,9 @@ Pick whatever you have, and the editor works out what it is:
 - **A plan and an image dropped together** become a project of their own.
 
 The arrow next to Open lists recent folders and other ways to open: a folder, a typed
-path, or the browser's own file picker when the system dialog can't appear. Set
-`FLOORPLAN_WORKSPACE` to put new projects somewhere other than `~/floorplans`.
+path, or the browser's own file picker when the system dialog can't appear. On a Mac that
+dialog needs Tk; if Open does nothing, use the browser picker or drop the file on the
+window. Set `FLOORPLAN_WORKSPACE` to put new projects somewhere other than `~/floorplans`.
 
 ### What goes in a plan folder
 
@@ -380,7 +387,7 @@ wall to 1 px found 488 walls and covered 93%, but needed much more cleanup.
 
 ## Keyboard shortcuts
 
-Ctrl+K shows all of these, searchable.
+Ctrl+K shows all of these, searchable. On a Mac, Command does the same job as Ctrl in every shortcut here (Command+K, Command+S, Command+Z, Command-drag, and the rest). The Commands list still labels them Ctrl.
 
 | Key | Action |
 | --- | --- |
@@ -505,7 +512,10 @@ How a harness should behave — flags, comments, the selection, when to look, an
 save — is [AGENTS.md](AGENTS.md). The server loads that file and gives it to the harness
 as its instructions. The editor's About box links to the same page.
 
-Add it to `~/.cursor/mcp.json` (on Chee's machine it's already there):
+Add it to `~/.cursor/mcp.json` (on Chee's machine it's already there). Point `command` at
+the venv's Python.
+
+Windows:
 
 ```json
 {
@@ -518,10 +528,22 @@ Add it to `~/.cursor/mcp.json` (on Chee's machine it's already there):
 }
 ```
 
-With your own venv, point `command` at that venv's Python. To use a port other than
-35667, add `"env": { "FLOORPLAN_URL": "http://127.0.0.1:9000" }`.
+Mac, with the venv created inside the clone:
 
-Then ask Cursor things like "open the editor on C:\plans\39C, delete the tub's front
+```json
+{
+  "mcpServers": {
+    "floorplan-editor": {
+      "command": "/Users/you/floorplan-editor/.venv/bin/python",
+      "args": ["-m", "floorplan_editor", "mcp"]
+    }
+  }
+}
+```
+
+To use a port other than 35667, add `"env": { "FLOORPLAN_URL": "http://127.0.0.1:9000" }`.
+
+Then ask Cursor things like "open the editor on ~/floorplans/39c, delete the tub's front
 wall, put a toilet there facing east, and save it as a step," or drop flags in the
 browser and say "do what F1 and F2 say." The tools:
 
@@ -581,6 +603,8 @@ and `--no-walls` makes an empty plan.
 ```powershell
 C:\Users\CheeC\code\.venv\Scripts\python.exe -m pytest
 ```
+
+On a Mac, from the clone: `.venv/bin/python -m pytest`.
 
 `tests/test_regression.py` tries every edit operation, the read-only API, and the colors in a saved picture, and fails if an operation is added or removed without a case. `tests/web/regression.test.mjs` covers snapping, axis lock, and clicking an object.
 
