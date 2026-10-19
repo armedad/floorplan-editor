@@ -29,7 +29,7 @@ import { loadSheetInk, placeLabels } from "./placement.js";
 import { initPanels, renderFiles, renderProps } from "./panels.js";
 import { hideTip, initTips } from "./help.js";
 import { applyAppearance, initSettings, syncPlanOverrides } from "./settings.js";
-import { $, popInput, popOpen, showMenu } from "./ui.js";
+import { $, combobox, el, popInput, popOpen, showMenu } from "./ui.js";
 
 const svg = $("svg");
 const world = $("world");
@@ -44,23 +44,46 @@ const idLayer = $("id-layer");
 const uiLayer = $("ui-layer");
 
 export const FIXTURE_SIZES = {
-  refrigerator: [36, 30],
-  range: [30, 26],
-  oven: [30, 26],
-  dishwasher: [24, 24],
   toilet: [20, 28],
   tub: [60, 30],
   soaking_tub: [66, 32],
   shower: [36, 36],
   sink: [30, 20],
-  washer: [27, 28],
-  dryer: [27, 28],
-  washer_dryer: [27, 30],
-  stool: [16, 16],
   fireplace: [60, 24],
   cabinet: [24, 24],
   upper_cabinet: [36, 12],
   generic: [24, 24],
+  stool: [16, 16],
+  bed: [60, 80],
+  sofa: [84, 36],
+  loveseat: [60, 36],
+  armchair: [36, 36],
+  dining_chair: [20, 20],
+  coffee_table: [48, 24],
+  dining_table: [72, 36],
+  nightstand: [20, 18],
+  dresser: [60, 20],
+  desk: [60, 30],
+  bookshelf: [36, 12],
+  tv_stand: [60, 18],
+  ottoman: [24, 24],
+  bench: [48, 16],
+  aquarium: [48, 18],
+  refrigerator: [36, 30],
+  range: [30, 26],
+  oven: [30, 26],
+  dishwasher: [24, 24],
+  washer: [27, 28],
+  dryer: [27, 28],
+  washer_dryer: [27, 30],
+  water_heater: [24, 24],
+  hvac: [36, 24],
+  furnace: [30, 30],
+  computer: [24, 18],
+  exercise_equipment: [36, 72],
+  tv_monitor: [48, 4],
+  electrical_panel: [18, 30],
+  server_rack: [24, 36],
 };
 
 const ZOOM_MIN = 0.05;
@@ -758,6 +781,7 @@ function updateToolbar() {
     $("path-folder").textContent = folder;
     const fileEl = $("path-file");
     fileEl.textContent = name;
+    fileEl.disabled = !s.file;
     fileEl.classList.toggle("dirty", !!(s.file && s.dirty));
     const full = s.file ? folder + name : s.folder;
     bar.title = full;
@@ -1257,14 +1281,42 @@ function renderToolOptions() {
   else if (app.tool === "door") box.innerHTML = lenInput("Width", "doorWidth");
   else if (app.tool === "window") box.innerHTML = lenInput("Width", "windowWidth");
   else if (app.tool === "fixture") {
-    const types = (app.state && app.state.fixture_types) || Object.keys(FIXTURE_SIZES);
-    box.innerHTML =
-      `<label>Type <select data-opt="fixtureType">${types
-        .map((t) => `<option value="${t}" ${t === o.fixtureType ? "selected" : ""}>${t.replace(/_/g, " ")}</option>`)
-        .join("")}</select></label>` +
-      `<label>Rotation <select data-opt="fixtureRot">${[0, 90, 180, 270]
-        .map((r) => `<option ${r === o.fixtureRot ? "selected" : ""}>${r}</option>`)
-        .join("")}</select></label>`;
+    box.replaceChildren();
+    const catalog = (app.state && app.state.ffe_types) || [];
+    const groups = catalog.length
+      ? ["fixtures", "furniture", "equipment"]
+          .map((cat) => ({
+            name: { fixtures: "Fixtures", furniture: "Furniture", equipment: "Equipment" }[cat],
+            items: catalog.filter((item) => item.category === cat).map((item) => ({ id: item.id, name: item.name })),
+          }))
+          .filter((g) => g.items.length)
+      : [{ name: "FF&E", items: Object.keys(FIXTURE_SIZES).map((t) => ({ id: t, name: t.replace(/_/g, " ") })) }];
+    box.append(
+      combobox({
+        label: "Type",
+        value: o.fixtureType,
+        groups,
+        onPick: (id) => {
+          o.fixtureType = id;
+          renderUI();
+        },
+      }),
+    );
+    const rot = el(
+      "select",
+      {
+        "data-opt": "fixtureRot",
+        "aria-label": "Rotation",
+        on: {
+          change: () => {
+            o.fixtureRot = Number(rot.value);
+            renderUI();
+          },
+        },
+      },
+      [0, 90, 180, 270].map((r) => el("option", { value: String(r), selected: r === o.fixtureRot }, String(r))),
+    );
+    box.append(el("label", {}, "Rotation ", rot));
   } else if (app.tool === "label") {
     box.innerHTML = `<label>Text <input data-opt="labelText" value="${esc(o.labelText).replace(/"/g, "&quot;")}" placeholder="asked on click if empty"/></label>`;
   } else box.innerHTML = "";
@@ -1273,15 +1325,12 @@ function renderToolOptions() {
       node.addEventListener("input", () => (o.labelText = node.value));
       continue;
     }
+    if (node.dataset.opt === "fixtureRot") continue;
     node.addEventListener("change", () => {
       const key = node.dataset.opt;
-      if (key === "fixtureType") o[key] = node.value;
-      else if (key === "fixtureRot") o[key] = Number(node.value);
-      else {
-        const v = parseLength(node.value);
-        if (Number.isFinite(v) && v > 0) o[key] = round2(v);
-        node.value = formatLength(o[key]);
-      }
+      const v = parseLength(node.value);
+      if (Number.isFinite(v) && v > 0) o[key] = round2(v);
+      node.value = formatLength(o[key]);
       renderUI();
     });
   }
@@ -2006,6 +2055,42 @@ export function saveAs() {
   else input.select();
 }
 
+function planPathParts() {
+  const s = app.state;
+  if (!s || !s.folder || !s.file) return null;
+  const sep = s.folder.includes("\\") ? "\\" : "/";
+  const folder = s.folder.replace(/[\\/]+$/, "");
+  return { folder, name: s.file, full: folder + sep + s.file };
+}
+
+async function copyPathText(text, what) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const area = el("textarea", {}, text);
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  message(`Copied ${what}: ${text}`);
+}
+
+function showPathMenu(anchor) {
+  const parts = planPathParts();
+  if (!parts) return;
+  const r = anchor.getBoundingClientRect();
+  showMenu(
+    [
+      { label: "Copy full name", title: parts.full, run: () => copyPathText(parts.full, "the full name") },
+      { label: "Copy name only", title: parts.name, run: () => copyPathText(parts.name, "the file name") },
+      { label: "Copy containing folders", title: parts.folder, run: () => copyPathText(parts.folder, "the folder") },
+    ],
+    r.left,
+    r.bottom + 2,
+  );
+}
+
 function showSaveMenu(anchor) {
   const r = anchor.getBoundingClientRect();
   const step = ((app.state && app.state.next_step) || "plan-step1.json").replace(/\.json$/i, "");
@@ -2500,6 +2585,7 @@ $("undo").addEventListener("click", undo);
 $("redo").addEventListener("click", redo);
 $("save").addEventListener("click", () => save("overwrite"));
 $("save-more").addEventListener("click", () => showSaveMenu($("save-more")));
+$("path-file").addEventListener("click", () => showPathMenu($("path-file")));
 $("saveas-cancel").addEventListener("click", () => $("saveas-dialog").close());
 $("saveas-form").addEventListener("submit", (e) => {
   e.preventDefault();

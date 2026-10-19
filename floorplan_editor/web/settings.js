@@ -1,7 +1,7 @@
 // Settings: About, the command list, and the colors objects are drawn in.
 
 import { api } from "./api.js";
-import { app, message, send } from "./app.js";
+import { app, call, message, send } from "./app.js";
 import { COMMANDS } from "./commands.js";
 import { $, el } from "./ui.js";
 
@@ -11,6 +11,8 @@ const KIND_LABELS = {
   windows: "Windows",
   counters: "Counters",
   fixtures: "Fixtures",
+  furniture: "Furniture",
+  equipment: "Equipment",
   labels: "Labels",
   measures: "Measurements",
 };
@@ -52,6 +54,14 @@ export function initSettings() {
     applyAppearance(appearance, app.plan);
     postAppearance(appearance);
   });
+  $("add-rule").addEventListener("click", addRule);
+  $("new-rule-text").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      addRule();
+    }
+  });
+  $("pin-check-all").addEventListener("click", pinCheck);
 }
 
 async function saveDefaultFolder() {
@@ -67,13 +77,14 @@ async function saveDefaultFolder() {
 }
 
 function showTab(id) {
-  for (const name of ["about", "commands", "customize"]) {
+  for (const name of ["about", "commands", "customize", "rules"]) {
     $(`settings-${name}`).hidden = name !== id;
     document.querySelector(`[data-settings-tab="${name}"]`).classList.toggle("on", name === id);
     document.querySelector(`[data-settings-tab="${name}"]`).setAttribute("aria-selected", name === id ? "true" : "false");
   }
   if (id === "commands") renderCommands();
   if (id === "customize") renderCustomize();
+  if (id === "rules") renderRules();
 }
 
 function renderCommands() {
@@ -282,5 +293,135 @@ export function syncPlanOverrides() {
     box.checked = on;
     input.disabled = !on;
     if (on) input.value = color;
+  }
+}
+
+let ruleRows = [];
+const shownRules = new Set();
+
+const PROPERTIES = {
+  "side-clearance": "Distance from the fixture's center to the nearest wall face beside it.",
+  "wall-overlap": "How far the fixture's box overlaps a wall.",
+  jamb: "A door fails when both jambs are open.",
+  length: "The length of a wall.",
+};
+
+function validCode(rule) {
+  const code = rule && rule.code;
+  if (!code || typeof code.type !== "string" || !code.type.trim()) return null;
+  if (typeof code.property !== "string" || !Object.hasOwn(PROPERTIES, code.property)) return null;
+  if (code.compare !== "at-least" && code.compare !== "at-most") return null;
+  const inches = code.inches;
+  if (typeof inches !== "number" || !Number.isFinite(inches) || inches < 0) return null;
+  const compare = code.compare === "at-least" ? "at least" : "at most";
+  return {
+    line: `${code.type}, ${code.property}, ${compare} ${inches} inches`,
+    sentence: PROPERTIES[code.property],
+  };
+}
+
+async function renderRules() {
+  const host = $("rule-rows");
+  try {
+    ruleRows = (await api("/api/rules")).rules;
+  } catch (err) {
+    host.replaceChildren(el("p", { class: "note", text: err.message === "Not Found" ? "Restart the editor to edit placement rules." : err.message }));
+    return;
+  }
+  paintRules();
+}
+
+function paintRules() {
+  const enabled = new Set((app.plan && app.plan.enabled_rules) || []);
+  const pin = $("pin-check-all");
+  if (pin) pin.disabled = !app.plan;
+  $("rule-rows").replaceChildren(
+    ...ruleRows.map((rule) => {
+      const sentence = el("textarea", { rows: "2", "aria-label": `Sentence for ${rule.id}`, spellcheck: "true" });
+      sentence.value = rule.text;
+      sentence.addEventListener("change", () => saveSentence(rule.id, sentence.value));
+      const code = validCode(rule);
+      if (!code) shownRules.delete(rule.id);
+      const open = code && shownRules.has(rule.id);
+      return el(
+        "div",
+        { class: "rule-row" },
+        el(
+          "label",
+          { class: "rule-on" },
+          el("input", {
+            type: "checkbox",
+            checked: enabled.has(rule.id),
+            disabled: !app.plan,
+            "aria-label": `This plan: ${rule.id}`,
+            on: { change: (e) => enableRule(rule.id, e.target.checked) },
+          }),
+          "This plan",
+        ),
+        el(
+          "div",
+          {},
+          sentence,
+          code
+            ? el("button", {
+              type: "button",
+              class: "rule-show",
+              on: { click: () => { shownRules.has(rule.id) ? shownRules.delete(rule.id) : shownRules.add(rule.id); paintRules(); } },
+            }, open ? "Hide rule" : "Show rule")
+            : el("p", { class: "note", text: "No check yet. The pinned check converts this sentence." }),
+          open ? el("div", { class: "rule-code" }, el("div", { text: code.line }), el("p", { text: code.sentence })) : null,
+          /^r\d+$/.test(rule.id) ? el("button", { type: "button", on: { click: () => removeRule(rule.id) } }, "Remove") : null,
+        ),
+      );
+    }),
+  );
+}
+
+async function saveSentence(id, text) {
+  const current = ruleRows.find((rule) => rule.id === id);
+  if (current && current.text === text.trim()) return;
+  try {
+    ruleRows = (await api("/api/rules", { action: "text", id, text })).rules;
+    paintRules();
+  } catch (err) {
+    message(err.message, true);
+    paintRules();
+  }
+}
+
+async function enableRule(id, on) {
+  try {
+    await send({ op: "set_enabled_rules", id, on }, { selectRef: false });
+  } catch (err) {
+    message(err.message, true);
+  }
+  paintRules();
+}
+
+async function addRule() {
+  const text = $("new-rule-text").value.trim();
+  if (!text) return;
+  try {
+    ruleRows = (await api("/api/rules", { action: "add", text })).rules;
+    $("new-rule-text").value = "";
+    paintRules();
+  } catch (err) {
+    message(err.message, true);
+  }
+}
+
+async function removeRule(id) {
+  try {
+    ruleRows = (await api("/api/rules", { action: "delete", id })).rules;
+    paintRules();
+  } catch (err) {
+    message(err.message, true);
+  }
+}
+
+async function pinCheck() {
+  const state = await call("/api/flags", { action: "pin_check" }, { selectRef: false });
+  if (state && state.flag) {
+    message(`Pinned ${state.flag}. A sweep converts sentences with no check, then measures this floor.`);
   }
 }

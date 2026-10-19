@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .appearance import load_appearance, palette
 from .geometry import along, band, rect_polygon, rotate, unit, wall_length
-from .model import FIXTURE_LABELS, SIDE_VEC
+from .model import FIXTURE_LABELS, SIDE_VEC, fixture_category, is_object_color
 
 # How far a door leaf opens from the wall, in degrees. 90 would be straight out.
 DOOR_SWING = 60
@@ -94,6 +94,15 @@ def scene(plan: dict, *, ink=None, fill_walls: bool = True, appearance: dict | N
     def paint(token: str):
         return paints[token] if paints is not None else ink
 
+    def ink_of(obj: dict, token: str):
+        """Per-object color when set, else the Settings color for that kind."""
+        if paints is None:
+            return ink
+        color = obj.get("color")
+        if is_object_color(color):
+            return color.lower()
+        return paint(token)
+
     ops: list[dict] = []
     openings_by_wall: dict[str, list[dict]] = {}
     for opening in plan.get("openings", []):
@@ -102,7 +111,7 @@ def scene(plan: dict, *, ink=None, fill_walls: bool = True, appearance: dict | N
     for wall in plan.get("walls", []):
         thickness = float(wall["thickness"])
         tag = ["walls", wall["id"]]
-        wall_color = paint("walls")
+        wall_color = ink_of(wall, "walls")
         rail = wall.get("kind") == "glass_rail"
         for start, end in wall_parts(wall, openings_by_wall.get(wall["id"], [])):
             if rail:
@@ -135,7 +144,7 @@ def scene(plan: dict, *, ink=None, fill_walls: bool = True, appearance: dict | N
             )
         for opening in openings_by_wall.get(wall["id"], []):
             otag = ["openings", opening["id"]]
-            opening_color = paint("doors" if opening["type"] == "door" else "windows")
+            opening_color = ink_of(opening, "doors" if opening["type"] == "door" else "windows")
             if opening["type"] == "door":
                 width = float(opening["width"])
                 hinge_at = float(opening["offset"])
@@ -194,7 +203,7 @@ def scene(plan: dict, *, ink=None, fill_walls: bool = True, appearance: dict | N
 
     for counter in plan.get("counters", []):
         tag = ["counters", counter["id"]]
-        counter_color = paint("counters")
+        counter_color = ink_of(counter, "counters")
         if "points" in counter:
             ops.append(
                 {
@@ -232,7 +241,7 @@ def scene(plan: dict, *, ink=None, fill_walls: bool = True, appearance: dict | N
             )
 
     for fixture in plan.get("fixtures", []):
-        ops.extend(fixture_ops(fixture, canvas, paint("fixtures"), fill_walls))
+        ops.extend(fixture_ops(fixture, canvas, ink_of(fixture, fixture_category(fixture.get("type"))), fill_walls))
 
     for index, label in enumerate(plan.get("labels", [])):
         ops.append(
@@ -241,13 +250,13 @@ def scene(plan: dict, *, ink=None, fill_walls: bool = True, appearance: dict | N
                 "at": canvas.pt(float(label["x"]), float(label["y"])),
                 "text": label["text"],
                 "size": float(label.get("size_px", 16)),
-                "fill": paint("labels"),
+                "fill": ink_of(label, "labels"),
                 "obj": ["labels", index],
             }
         )
 
     for measure in plan.get("measures", []):
-        ops.extend(_measure_ops(measure, canvas, paint("measures")))
+        ops.extend(_measure_ops(measure, canvas, ink_of(measure, "measures")))
     return ops
 
 

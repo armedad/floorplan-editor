@@ -225,3 +225,199 @@ export function hideMenu() {
   menuCleanup = null;
   if (menu) menu.hidden = true;
 }
+
+/**
+ * A filterable dropdown. `groups` is [{name, items: [{id, name}]}].
+ * The field is editable to filter the list; the chevron (or focus) opens the full menu.
+ * Choosing an item calls onPick(id).
+ */
+export function combobox({ label, value, groups, onPick, ariaLabel = label }) {
+  const flat = groups.flatMap((g) => g.items.map((item) => ({ ...item, group: g.name })));
+  const labelOf = (id) => (flat.find((item) => item.id === id) || { name: id || "" }).name;
+  const input = el("input", {
+    type: "text",
+    value: labelOf(value),
+    "aria-label": ariaLabel,
+    "aria-autocomplete": "list",
+    "aria-expanded": "false",
+    autocomplete: "off",
+    spellcheck: "false",
+    placeholder: "Type to filter…",
+  });
+  const toggle = el("button", {
+    type: "button",
+    class: "combo-toggle",
+    "aria-label": "Show options",
+    tabIndex: -1,
+    text: "▾",
+  });
+  const list = el("div", { class: "combo-list", hidden: true, role: "listbox" });
+  const box = el("div", { class: "combo-box" }, input, toggle, list);
+  let open = false;
+  let filtered = flat;
+  let typing = false;
+
+  const placeList = () => {
+    const rect = box.getBoundingClientRect();
+    list.style.position = "fixed";
+    list.style.left = `${Math.round(rect.left)}px`;
+    list.style.width = `${Math.max(rect.width, 180)}px`;
+    list.style.right = "auto";
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    const preferBelow = spaceBelow >= 160 || spaceBelow >= spaceAbove;
+    if (preferBelow) {
+      list.style.top = `${Math.round(rect.bottom + 2)}px`;
+      list.style.bottom = "auto";
+      list.style.maxHeight = `${Math.min(280, Math.max(120, spaceBelow))}px`;
+    } else {
+      list.style.bottom = `${Math.round(window.innerHeight - rect.top + 2)}px`;
+      list.style.top = "auto";
+      list.style.maxHeight = `${Math.min(280, Math.max(120, spaceAbove))}px`;
+    }
+  };
+
+  const close = () => {
+    open = false;
+    typing = false;
+    list.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    input.value = labelOf(value);
+    list.style.position = "";
+    list.style.left = "";
+    list.style.top = "";
+    list.style.bottom = "";
+    list.style.width = "";
+    list.style.right = "";
+    list.style.maxHeight = "";
+  };
+
+  const paint = () => {
+    list.replaceChildren();
+    let lastGroup = null;
+    for (const item of filtered) {
+      if (item.group !== lastGroup) {
+        lastGroup = item.group;
+        list.append(el("div", { class: "combo-group", text: item.group }));
+      }
+      list.append(
+        el(
+          "button",
+          {
+            type: "button",
+            class: `combo-option${item.id === value ? " on" : ""}`,
+            role: "option",
+            "aria-selected": item.id === value ? "true" : "false",
+            on: {
+              mousedown: (e) => e.preventDefault(),
+              click: () => {
+                value = item.id;
+                onPick(item.id);
+                close();
+              },
+            },
+          },
+          item.name,
+        ),
+      );
+    }
+    if (!filtered.length) list.append(el("div", { class: "combo-empty", text: "No matches" }));
+    const selected = list.querySelector(".combo-option.on");
+    if (selected) {
+      selected.classList.add("active");
+      selected.scrollIntoView({ block: "nearest" });
+    } else {
+      const first = list.querySelector(".combo-option");
+      if (first) first.classList.add("active");
+    }
+  };
+
+  const applyFilter = (q) => {
+    const needle = q.trim().toLowerCase();
+    filtered = needle
+      ? flat.filter(
+          (item) =>
+            item.name.toLowerCase().includes(needle) ||
+            item.id.toLowerCase().includes(needle) ||
+            item.group.toLowerCase().includes(needle),
+        )
+      : flat;
+  };
+
+  const openList = ({ filter = false, selectText = false } = {}) => {
+    open = true;
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    if (filter) applyFilter(input.value);
+    else {
+      typing = false;
+      filtered = flat;
+    }
+    paint();
+    placeList();
+    if (selectText) requestAnimationFrame(() => input.select());
+  };
+
+  input.addEventListener("focus", () => openList({ filter: false, selectText: true }));
+  input.addEventListener("input", () => {
+    typing = true;
+    openList({ filter: true });
+  });
+  input.addEventListener("blur", () => setTimeout(close, 150));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+      input.blur();
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) openList({ filter: typing });
+      const options = [...list.querySelectorAll(".combo-option")];
+      if (!options.length) return;
+      const i = options.findIndex((node) => node.classList.contains("active"));
+      const start = i >= 0 ? i : options.findIndex((node) => node.classList.contains("on"));
+      const next =
+        e.key === "ArrowDown"
+          ? (start + 1) % options.length
+          : (start <= 0 ? options.length : start) - 1;
+      options.forEach((node) => node.classList.toggle("active", false));
+      options[next].classList.add("active");
+      options[next].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const pick = list.querySelector(".combo-option.active") || list.querySelector(".combo-option.on");
+      if (pick) {
+        pick.click();
+        return;
+      }
+      const first = filtered[0];
+      if (first) {
+        value = first.id;
+        onPick(first.id);
+        close();
+        input.blur();
+      }
+    }
+  });
+  toggle.addEventListener("mousedown", (e) => e.preventDefault());
+  toggle.addEventListener("click", () => {
+    if (open) {
+      close();
+      return;
+    }
+    input.focus();
+    openList({ filter: false, selectText: true });
+  });
+  window.addEventListener("resize", () => {
+    if (open) placeList();
+  });
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (open) placeList();
+    },
+    true,
+  );
+
+  return el("div", { class: "field" }, el("label", {}, label), box, el("span"));
+}

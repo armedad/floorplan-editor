@@ -33,10 +33,11 @@ from PIL import Image
 from ..agents import instructions_html
 from ..engine import PlanError, checked, draw_png, is_building, load_plan, scene, validate_plan
 from ..engine.appearance import load_appearance, save_appearance
+from ..engine.rules import RuleError, add_rule, delete_rule, load_rules, set_rule_code, update_rule_text
 from ..engine.analyze import lookup, stray_bits, wall_groups
 from ..engine.building import FIRST_FLOOR, as_building, export_image, floor_by_id, floor_label, floors_of, next_floor_id
 from ..engine.edit import EditError, apply
-from ..engine.model import FIXTURE_TYPES, LIST_KEYS, compass_from_up
+from ..engine.model import FIXTURE_TYPES, LIST_KEYS, OBJECT_COLORS, compass_from_up, fixture_catalog
 from ..engine.overlay import apply_erase_regions, overlay_image
 from ..engine.prefs import load_prefs, save_prefs
 from ..engine.steps import (
@@ -761,6 +762,8 @@ class Document:
             "sheet": self.sheet_info(),
             "has_base": (self.folder / BASE_NAME).exists(),
             "fixture_types": list(FIXTURE_TYPES),
+            "ffe_types": fixture_catalog(),
+            "object_colors": list(OBJECT_COLORS),
             "appearance": load_appearance(),
             "browsers": self.browsers,
             "flags": self.flags.listing(plan["canvas"] if plan else None),
@@ -831,6 +834,32 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
         with doc.lock:
             doc.bump()
         return saved
+
+    @app.get("/api/rules")
+    def get_rules():
+        with doc.lock:
+            plan = doc.plan or {}
+            enabled = list(plan.get("enabled_rules") or [])
+        return {"rules": load_rules(), "enabled": enabled}
+
+    @app.post("/api/rules")
+    def post_rules(body: dict = Body(...)):
+        """Add a sentence, change its words, or attach a check. Turning a rule on is a plan edit."""
+        action = body.get("action")
+        try:
+            if action == "add":
+                saved = add_rule(str(body.get("text") or ""))
+            elif action == "text":
+                saved = update_rule_text(str(body.get("id") or ""), str(body.get("text") or ""))
+            elif action == "code":
+                saved = set_rule_code(str(body.get("id") or ""), body.get("code"))
+            elif action == "delete":
+                saved = delete_rule(str(body.get("id") or ""))
+            else:
+                raise HTTPException(400, "action must be add, text, code, or delete")
+        except RuleError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"rules": saved}
 
     @app.get("/api/appearance")
     def get_appearance():
@@ -958,7 +987,17 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
                     if body.get("w") and body.get("h"):
                         scale = float(doc.require_plan()["canvas"]["px_per_inch"])
                         size = [float(body["w"]) * scale, float(body["h"]) * scale]
-                    flag = doc.flags.add(px, size=size, note=str(body.get("note") or ""), target=body.get("target"), by=str(body.get("by") or "user"))
+                    rule = body.get("rule")
+                    if rule is not None and not isinstance(rule, str):
+                        raise HTTPException(400, "rule must be a name")
+                    flag = doc.flags.add(
+                        px,
+                        size=size,
+                        note=str(body.get("note") or ""),
+                        target=body.get("target"),
+                        by=str(body.get("by") or "user"),
+                        rule=rule or None,
+                    )
                     flag_id = flag["id"]
                 elif action == "update":
                     fields = {k: body.get(k) for k in ("note", "done")}
@@ -972,8 +1011,16 @@ def create_app(folder: Path, sheet: Path | None = None) -> FastAPI:
                     doc.flags.delete([str(i) for i in ids])
                 elif action == "clear_done":
                     doc.flags.clear_done()
+                elif action == "pin_check":
+                    doc.require_plan()
+                    existing = next((flag for flag in doc.flags.flags if flag.get("by") == "pinned" and flag.get("rule") == "check-all"), None)
+                    if existing:
+                        flag_id = existing["id"]
+                    else:
+                        flag = doc.flags.add(doc.flag_px(12, 12), note="Check all rules.", by="pinned", rule="check-all")
+                        flag_id = flag["id"]
                 else:
-                    raise HTTPException(400, "action must be add, update, delete, or clear_done")
+                    raise HTTPException(400, "action must be add, update, delete, clear_done, or pin_check")
             except FlagError as exc:
                 raise HTTPException(400, str(exc)) from exc
             except KeyError as exc:

@@ -28,16 +28,37 @@ def test_default_colors(sample):
     assert _stroke(sample, "openings", "front-door") == "#ef9a9a"
     assert _stroke(sample, "openings", "kitchen-window") == "#ef9a9a"
     assert _stroke(sample, "counters") == "#424242"
-    assert _stroke(sample, "fixtures") == "#1e88e5"
+    assert _stroke(sample, "fixtures", "toilet") == "#1e88e5"
+    assert _stroke(sample, "fixtures", "stool-1") == "#6d4c41"
+    assert _stroke(sample, "fixtures", "fridge") == "#546e7a"
     assert _stroke(sample, "labels") == "#000000"
     assert _stroke(sample, "measures", role="measure") == "#ef6c00"
     assert default_appearance()["selected"] == "#0d47a1"
+    kinds = [kind for group in default_appearance()["groups"] for kind in group["kinds"]]
+    assert kinds.count("furniture") == 1 and kinds.count("equipment") == 1
+
+
+def test_object_color_and_ffe_categories(sample):
+    from floorplan_editor.engine.model import fixture_catalog, validate_plan
+
+    sample = copy.deepcopy(sample)
+    sample["walls"][0]["color"] = "#1565c0"
+    sample["fixtures"].append({"id": "sofa-1", "type": "sofa", "x": 40, "y": 40, "w": 84, "h": 36})
+    sample["fixtures"].append({"id": "fridge-2", "type": "refrigerator", "x": 80, "y": 40, "w": 36, "h": 30})
+    assert validate_plan(sample) == []
+    assert _stroke(sample, "walls", role="wall") == "#1565c0"
+    assert _stroke(sample, "fixtures", "sofa-1") == "#6d4c41"
+    assert _stroke(sample, "fixtures", "fridge-2") == "#546e7a"
+    cats = {item["id"]: item["category"] for item in fixture_catalog()}
+    assert cats["toilet"] == "fixtures" and cats["sofa"] == "furniture" and cats["refrigerator"] == "equipment"
+    assert any("palette colors" in e for e in validate_plan({**sample, "walls": [{**sample["walls"][0], "color": "#abcdef"}]}))
 
 
 def test_plan_override_and_moving_a_kind(sample):
     sample = copy.deepcopy(sample)
     sample["colors"] = {"fixtures": "#112233"}
-    assert _stroke(sample, "fixtures") == "#112233"
+    assert _stroke(sample, "fixtures", "toilet") == "#112233"
+    assert _stroke(sample, "fixtures", "fridge") == "#546e7a"
     assert _stroke(sample, "walls", role="wall") == "#c40000"
     appearance = default_appearance()
     walls = next(group for group in appearance["groups"] if group["id"] == "walls")
@@ -90,5 +111,7 @@ def test_appearance_api(sample_folder):
     saved = client.post("/api/appearance", json=body).json()
     assert next(group["color"] for group in saved["groups"] if group["id"] == "fixtures") == "#223344"
     state = client.get("/api/state").json()
-    assert next(op["stroke"] for op in state["scene"] if op["obj"][0] == "fixtures" and "stroke" in op) == "#223344"
+    assert next(op["stroke"] for op in state["scene"] if op["obj"] == ["fixtures", "toilet"] and "stroke" in op) == "#223344"
+    assert {item["category"] for item in state["ffe_types"]} == {"fixtures", "furniture", "equipment"}
+    assert "#1565c0" in state["object_colors"]
     assert client.post("/api/appearance", json={"groups": []}).status_code == 400

@@ -151,6 +151,21 @@ def test_batch_is_one_edit(sample):
     assert "column" not in {w["id"] for w in plan["walls"]}
 
 
+def test_batch_names_every_object_it_changes(sample):
+    plan, refs = apply(
+        sample,
+        {
+            "op": "batch",
+            "ops": [
+                {"op": "add", "kind": "labels", "obj": {"text": "A", "x": 1, "y": 1}},
+                {"op": "add", "kind": "labels", "obj": {"text": "B", "x": 2, "y": 2}},
+            ],
+        },
+    )
+    assert refs == [["labels", 4], ["labels", 5]]
+    assert [item["text"] for item in plan["labels"][-2:]] == ["A", "B"]
+
+
 def test_unknown_op(sample):
     with pytest.raises(EditError):
         apply(sample, {"op": "explode"})

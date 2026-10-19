@@ -15,6 +15,11 @@ export function getFlag(id) {
   return flagList().find((f) => f.id === id) || null;
 }
 
+function flagMark(f) {
+  const kind = f.by === "rule" ? " rule" : f.by === "pinned" ? " pinned" : "";
+  return `${f.done ? " done" : ""}${kind}`;
+}
+
 export function flagsMarkup() {
   if (!app.plan || !app.show.flags) return "";
   const k = 1 / app.view.z;
@@ -22,7 +27,7 @@ export function flagsMarkup() {
   const pins = [];
   for (const f of flagList()) {
     const key = `flags:${f.id}`;
-    const cls = `${f.done ? " done" : ""}${app.selection.has(key) ? " selected" : ""}`;
+    const cls = `${flagMark(f)}${app.selection.has(key) ? " selected" : ""}`;
     const [x, y] = f.px;
     if (f.size) {
       regions.push(`<rect class="flag-region${cls}" x="${x}" y="${y}" width="${f.size[0]}" height="${f.size[1]}" vector-effect="non-scaling-stroke"/>`);
@@ -106,8 +111,26 @@ export function setFlagDone(id, done) {
   return call("/api/flags", { action: "update", id, done }, { selectRef: false });
 }
 
-export function deleteFlags(ids) {
-  return call("/api/flags", { action: "delete", ids }, { selectRef: false }).then((s) => s && message(`Removed ${ids.join(", ")}.`));
+export function deleteFlags(ids, label) {
+  const what = label || ids.join(", ");
+  return call("/api/flags", { action: "delete", ids }, { selectRef: false }).then((s) => s && message(`Removed ${what}.`));
+}
+
+export async function undoAllFlags() {
+  const done = flagList().filter((f) => f.done);
+  if (!done.length) return;
+  for (const f of done) {
+    const state = await setFlagDone(f.id, false);
+    if (!state) return;
+  }
+  message(done.length === 1 ? "Reopened 1 flag." : `Reopened ${done.length} flags.`);
+}
+
+export function removeAllFlags() {
+  const ids = flagList().map((f) => f.id);
+  if (!ids.length) return;
+  if (!confirm("Remove every flag on this floor? Flags are not part of Undo.")) return;
+  return deleteFlags(ids, "every flag");
 }
 
 export function moveFlag(id, x, y) {
@@ -130,15 +153,36 @@ export function renderFlagsPanel() {
   const flags = flagList();
   const open = flags.filter((f) => !f.done).length;
   $("flag-count").textContent = flags.length ? `${open} open${flags.length > open ? `, ${flags.length - open} done` : ""}` : "";
+  const head = flags.length
+    ? el(
+        "li",
+        { class: "flag-head" },
+        el("span"),
+        el("span"),
+        el(
+          "button",
+          {
+            type: "button",
+            id: "flags-undo-all",
+            disabled: !flags.some((f) => f.done),
+            on: { click: () => undoAllFlags() },
+          },
+          "Undo all",
+        ),
+        el("span"),
+        el("button", { type: "button", id: "flags-remove-all", on: { click: () => removeAllFlags() } }, "Remove all"),
+      )
+    : null;
   list.replaceChildren(
-    ...flags.map((f) => {
+    ...[head, ...flags.map((f) => {
       const key = `flags:${f.id}`;
-      const meta = [f.target ? `on ${describeKey(`${f.target[0]}:${f.target[1]}`)}` : null, f.w ? "area" : null, f.by === "cursor" ? "from Cursor" : null]
+      const who = f.by === "rule" ? "rule" : f.by === "pinned" ? "pinned" : f.by === "cursor" ? "from Cursor" : null;
+      const meta = [f.target ? `on ${describeKey(`${f.target[0]}:${f.target[1]}`)}` : null, f.w ? "area" : null, who]
         .filter(Boolean)
         .join(" · ");
       return el(
         "li",
-        { class: `flag-item${f.done ? " done" : ""}${app.selection.has(key) ? " selected" : ""}` },
+        { class: `flag-item${flagMark(f)}${app.selection.has(key) ? " selected" : ""}` },
         el("button", { type: "button", class: "flag-pin", title: `Zoom to ${f.id}`, on: { click: () => zoomToFlag(f.id) } }, f.id),
         el(
           "button",
@@ -146,15 +190,11 @@ export function renderFlagsPanel() {
           el("span", { class: f.note ? "" : "muted" }, f.note || "(no note)"),
           meta ? el("span", { class: "flag-meta" }, meta) : null,
         ),
-        el(
-          "span",
-          { class: "flag-actions" },
-          el("button", { type: "button", title: f.done ? "Mark not done" : "Mark done", "aria-label": `${f.done ? "reopen" : "done"} ${f.id}`, on: { click: () => setFlagDone(f.id, !f.done) } }, f.done ? "↺" : "✓"),
-          el("button", { type: "button", title: "Copy a reference for Cursor", "aria-label": `copy ${f.id}`, on: { click: () => copyText(flagText(f), f.id) } }, "⧉"),
-          el("button", { type: "button", title: "Remove", "aria-label": `remove ${f.id}`, on: { click: () => deleteFlags([f.id]) } }, "×"),
-        ),
+        el("button", { type: "button", class: "flag-act", title: f.done ? "Mark not done" : "Mark done", "aria-label": `${f.done ? "reopen" : "done"} ${f.id}`, on: { click: () => setFlagDone(f.id, !f.done) } }, f.done ? "↺" : "✓"),
+        el("button", { type: "button", class: "flag-act", title: "Copy a reference for Cursor", "aria-label": `copy ${f.id}`, on: { click: () => copyText(flagText(f), f.id) } }, "⧉"),
+        el("button", { type: "button", class: "flag-act", title: "Remove", "aria-label": `remove ${f.id}`, on: { click: () => deleteFlags([f.id]) } }, "×"),
       );
-    }),
+    })].filter(Boolean),
   );
   if (!flags.length) list.append(el("li", { class: "note" }, "No flags yet. Press F, then click a spot (or drag an area) to drop one."));
   $("flags-copy").disabled = !open;

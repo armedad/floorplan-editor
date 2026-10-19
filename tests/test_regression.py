@@ -45,6 +45,7 @@ CASES = {
     "set_compass": lambda p: {"op": "set_compass", "up": "east"},
     "set_meta": lambda p: {"op": "set_meta", "name": "Renamed", "notes": "A note"},
     "set_colors": lambda p: {"op": "set_colors", "colors": {"walls": "#112233"}},
+    "set_enabled_rules": lambda p: {"op": "set_enabled_rules", "id": "toilet-side-clearance", "on": True},
     "add_walls": lambda p: {"op": "add_walls", "walls": [{"x1": 20, "y1": 220, "x2": 80, "y2": 220, "thickness": 4}]},
     "merge_walls": lambda p: {"op": "merge_walls", "ids": ["bed-n", "bath-s"]},
     "merge_stacked": lambda p: _stacked(p),
@@ -110,9 +111,9 @@ def test_saved_pictures_use_the_group_colors(sample, sample_folder):
     sample["measures"] = [{"id": "m1", "x1": 40, "y1": 40, "x2": 80, "y2": 40}]
     sample["walls"].append({"id": "rail", "x1": 20, "y1": 40, "x2": 60, "y2": 40, "thickness": 1.5, "kind": "glass_rail"})
     svg = to_svg(sample, scene(sample))
-    for color in ("#c40000", "#ef9a9a", "#424242", "#1e88e5", "#000000", "#ef6c00"):
+    for color in ("#c40000", "#ef9a9a", "#424242", "#1e88e5", "#6d4c41", "#546e7a", "#000000", "#ef6c00"):
         assert color in svg
-    assert "#00897b" not in svg and "#0d47a1" not in svg
+    assert "#0d47a1" not in svg
     rail = next(op for op in scene(sample) if op.get("role") == "rail")
     assert rail["stroke"] == "#c40000"
 
@@ -150,13 +151,13 @@ def test_a_broken_appearance_file_falls_back_to_the_defaults(tmp_path, monkeypat
 
 def test_editor_pages_offer_settings_and_the_read_api_answers(client):
     page = client.get("/").text
-    for tab in ("about", "commands", "customize"):
+    for tab in ("about", "commands", "customize", "rules"):
         assert f'data-settings-tab="{tab}"' in page
     assert "This plan" in page and 'href="/agents"' in page
     assert 'id="save-more"' in page and 'id="saveas-dialog"' in page and "Default save folder" in page
     assert "list_flags" in client.get("/agents").text
 
-    for path in ("/api/state", "/api/appearance", "/api/prefs", "/api/sheet", "/api/overlay", "/api/render", "/api/selection", "/api/file/plan.json"):
+    for path in ("/api/state", "/api/appearance", "/api/prefs", "/api/rules", "/api/sheet", "/api/overlay", "/api/render", "/api/selection", "/api/file/plan.json"):
         assert client.get(path).status_code == 200, path
     assert client.post("/api/op", json={"op": {"op": "nope"}}).status_code == 400
     assert client.post("/api/appearance", json={"groups": []}).status_code == 400
@@ -166,11 +167,11 @@ def test_undo_of_a_plan_color_restores_the_drawing(client):
     state = client.post("/api/op", json={"op": {"op": "set_colors", "colors": {"fixtures": "#112233"}}}).json()
     assert state["dirty"] is True
     assert state["plan"]["colors"] == {"fixtures": "#112233"}
-    assert next(op["stroke"] for op in state["scene"] if op["obj"][0] == "fixtures" and "stroke" in op) == "#112233"
+    assert next(op["stroke"] for op in state["scene"] if op["obj"] == ["fixtures", "toilet"] and "stroke" in op) == "#112233"
     state = client.post("/api/undo").json()
     assert "colors" not in state["plan"]
     assert state["dirty"] is False
-    assert next(op["stroke"] for op in state["scene"] if op["obj"][0] == "fixtures" and "stroke" in op) == "#1e88e5"
+    assert next(op["stroke"] for op in state["scene"] if op["obj"] == ["fixtures", "toilet"] and "stroke" in op) == "#1e88e5"
 
 
 def test_browser_sources_parse():

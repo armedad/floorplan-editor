@@ -91,7 +91,7 @@ h2 {
   background: #fff;
   border-bottom: 1px solid #ccd3da;
   flex-wrap: nowrap;
-  overflow: hidden;
+  overflow: visible;
 }
 #toolbar .group {
   display: flex;
@@ -127,8 +127,8 @@ h2 {
   color: #0d47a1;
 }
 #toolbar .flag-tool.active {
-  color: #e65100;
-  background: #fff3e8;
+  color: #f57f17;
+  background: #fff8e1;
 }
 #toolbar #save.saved {
   background: transparent;
@@ -154,6 +154,12 @@ h2 {
 #toolbar .right {
   margin-left: auto;
 }
+#tool-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
 #tool-options label {
   display: flex;
   gap: 4px;
@@ -161,6 +167,22 @@ h2 {
 }
 #tool-options input {
   width: 64px;
+}
+#tool-options .field {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 0;
+}
+#tool-options .field > label {
+  font-size: 12px;
+  color: #5c6670;
+}
+#tool-options .combo-box {
+  width: 180px;
+}
+#tool-options .combo-box input {
+  width: auto;
 }
 
 main {
@@ -349,6 +371,131 @@ h2 .count {
   font-size: 11px;
   min-width: 52px;
 }
+.combo-box {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border: 1px solid #b8c0c8;
+  border-radius: 4px;
+  background: #fff;
+}
+.combo-box:focus-within {
+  border-color: #1565c0;
+  box-shadow: 0 0 0 1px #1565c0;
+}
+.combo-box input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  padding: 3px 6px;
+  font: inherit;
+  outline: none;
+}
+.combo-toggle,
+#toolbar .combo-toggle {
+  flex: none;
+  width: 22px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-left: 1px solid #d5dbe1;
+  border-radius: 0 3px 3px 0;
+  background: #f4f6f8;
+  color: #5c6670;
+  font-size: 11px;
+  font-weight: normal;
+  line-height: 1;
+  cursor: pointer;
+}
+.combo-toggle:hover,
+#toolbar .combo-toggle:hover:not(:disabled) {
+  background: #e8eef5;
+  color: #1565c0;
+}
+.combo-list {
+  z-index: 1000;
+  max-height: 240px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #b8c0c8;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  padding: 4px 0;
+  box-sizing: border-box;
+}
+.combo-group {
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6a737d;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.combo-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  font: inherit;
+  color: #1d2329;
+  cursor: pointer;
+  border-radius: 0;
+}
+.combo-option:hover,
+.combo-option.active {
+  background: #e8f0fb;
+}
+.combo-option.on {
+  font-weight: 600;
+}
+.combo-option.on.active,
+.combo-option.on:hover {
+  background: #d6e4f7;
+}
+.combo-empty {
+  padding: 8px 10px;
+  color: #8a949e;
+  font-size: 12px;
+}
+.color-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.color-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #9aa3ab;
+  border-radius: 3px;
+  cursor: pointer;
+  box-sizing: border-box;
+  flex: none;
+}
+.color-swatch:hover {
+  outline: 2px solid #1565c0;
+  outline-offset: 1px;
+}
+.color-swatch.on {
+  outline: 2px solid #1d2329;
+  outline-offset: 1px;
+}
+.color-swatch.default {
+  background: linear-gradient(135deg, #fff 46%, #c62828 46%, #c62828 54%, #fff 54%);
+}
+.color-swatch.mixed {
+  background: repeating-linear-gradient(-45deg, #fff, #fff 3px, #d0d5da 3px, #d0d5da 6px);
+}
+.color-swatch.light {
+  box-shadow: inset 0 0 0 1px #ccd3da;
+}
 #props label.scrub {
   cursor: ew-resize;
   user-select: none;
@@ -422,9 +569,24 @@ h2 .count {
 }
 #path-file {
   flex: none;
+  font: inherit;
   font-weight: 600;
+  font-size: 12px;
   color: #1d2329;
   white-space: nowrap;
+  border: none;
+  background: transparent;
+  padding: 1px 3px;
+  border-radius: 4px;
+}
+#path-file:hover:not(:disabled),
+#path-file:focus-visible {
+  background: #e4e9ee;
+}
+#path-file:disabled {
+  opacity: 1;
+  color: #1d2329;
+  cursor: default;
 }
 #path-file.dirty::after {
   content: " •";
@@ -490,10 +652,50 @@ h2 .count {
 }
 #settings-about,
 #settings-commands,
-#settings-customize {
+#settings-customize,
+#settings-rules {
   overflow: auto;
   min-height: 0;
   flex: 1;
+}
+.rule-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px solid #e6eaee;
+}
+.rule-row .note {
+  margin: 2px 0 0;
+}
+.rule-row textarea {
+  width: 100%;
+  resize: vertical;
+}
+.rule-on {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  color: #6a737d;
+  white-space: nowrap;
+}
+.rule-show {
+  margin-top: 4px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+.rule-code {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  background: #f4f6f8;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.rule-code p {
+  margin: 2px 0 0;
 }
 #settings-about .about-name {
   text-transform: none;
@@ -857,23 +1059,34 @@ dialog label {
 /* flags */
 .flag-tool.active,
 button.flag-tool:hover {
-  border-color: #ff6d00;
+  border-color: #f9a825;
 }
 .flag {
   cursor: pointer;
 }
 .flag path {
-  fill: #ff6d00;
+  fill: #f9a825;
   stroke: #fff;
   stroke-width: 1.5;
 }
+.flag.rule path {
+  fill: #c62828;
+}
+.flag.pinned path {
+  fill: #6a1b9a;
+}
 .flag text {
   font: 700 11px "Segoe UI", system-ui, sans-serif;
-  fill: #fff;
+  fill: #1a1a1a;
   text-anchor: middle;
   dominant-baseline: middle;
   pointer-events: none;
   user-select: none;
+}
+.flag.rule text,
+.flag.pinned text,
+.flag.done text {
+  fill: #fff;
 }
 .flag.done path {
   fill: #9aa3ab;
@@ -883,10 +1096,18 @@ button.flag-tool:hover {
   stroke-width: 3;
 }
 .flag-region {
-  fill: rgba(255, 109, 0, 0.1);
-  stroke: #ff6d00;
+  fill: rgba(249, 168, 37, 0.12);
+  stroke: #f9a825;
   stroke-dasharray: 6 4;
   pointer-events: none;
+}
+.flag-region.rule {
+  fill: rgba(198, 40, 40, 0.12);
+  stroke: #c62828;
+}
+.flag-region.pinned {
+  fill: rgba(106, 27, 154, 0.12);
+  stroke: #6a1b9a;
 }
 .flag-region.done {
   stroke: #9aa3ab;
@@ -896,8 +1117,8 @@ button.flag-tool:hover {
   stroke-width: 2;
 }
 .flag-ghost {
-  fill: rgba(255, 109, 0, 0.1);
-  stroke: #ff6d00;
+  fill: rgba(249, 168, 37, 0.12);
+  stroke: #f9a825;
   stroke-dasharray: 6 4;
 }
 #flags-list {
@@ -906,16 +1127,45 @@ button.flag-tool:hover {
   padding: 0;
   max-height: 260px;
   overflow-y: auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  column-gap: 6px;
+  align-items: start;
+}
+#flags-list > .note {
+  grid-column: 1 / -1;
+}
+.flag-head,
+.flag-item {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: start;
+}
+.flag-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fff;
+  padding-bottom: 4px;
+}
+.flag-head button {
+  padding: 1px 6px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 .flag-item {
-  display: flex;
-  gap: 6px;
-  align-items: flex-start;
   padding: 3px 2px;
   border-radius: 4px;
 }
 .flag-item.selected {
-  background: #fff1e5;
+  background: #fff8e1;
+}
+.flag-item.rule.selected {
+  background: #ffebee;
+}
+.flag-item.pinned.selected {
+  background: #f3e5f5;
 }
 .flag-item .flag-pin {
   flex: none;
@@ -923,12 +1173,21 @@ button.flag-tool:hover {
   padding: 1px 5px;
   border: none;
   border-radius: 10px;
-  background: #ff6d00;
-  color: #fff;
+  background: #f9a825;
+  color: #1a1a1a;
   font-weight: 700;
+}
+.flag-item.rule .flag-pin {
+  background: #c62828;
+  color: #fff;
+}
+.flag-item.pinned .flag-pin {
+  background: #6a1b9a;
+  color: #fff;
 }
 .flag-item.done .flag-pin {
   background: #9aa3ab;
+  color: #fff;
 }
 .flag-item .flag-body {
   flex: 1;
@@ -952,12 +1211,7 @@ button.flag-tool:hover {
   font-size: 11px;
   color: #6a737d;
 }
-.flag-item .flag-actions {
-  flex: none;
-  display: flex;
-  gap: 2px;
-}
-.flag-item .flag-actions button {
+.flag-item .flag-act {
   padding: 0 5px;
 }
 

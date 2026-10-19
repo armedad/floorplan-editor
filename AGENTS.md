@@ -40,6 +40,17 @@ The folder's sheet is the first image whose name does not start with `plan` or `
 
 Ids look like `w12` or `toilet-1`. A label has no id of its own; it is `labels:3`. Either form is accepted.
 
+## FF&E and colors
+
+Furniture, fixtures, and equipment (FF&E) all live under `plan.fixtures`. The `type` field picks which group it belongs to; the group picks the Settings color unless the object has its own `color`.
+
+1. Call `editor_status`. It returns `ffe_types` as `[{id, name, category}]` with `category` one of `fixtures`, `furniture`, or `equipment`, and `object_colors` as the fixed swatch list (twelve `#rrggbb` values). Use those lists; do not invent types or hex colors.
+2. Place one with `add_object("fixtures", {"type": "sofa", "x": …, "y": …, "w": …, "h": …, "rot": 0})`. Optional `color` is one of `object_colors`. Or convert traced pieces with `convert_objects(to="fixture", fixture_type="toilet", …)`.
+3. Change type or color with `update_object("fixtures", id, {"type": "armchair"})` or `{"color": "#1565c0"}`. Set `color` to `null` to clear it (Default = the Settings color for that type's category). The same `color` field works on walls, openings, counters, labels, erase regions, and measures.
+4. Several edits in one undo step: `apply_ops` with `{"op":"add","kind":"fixtures","obj":{…}}` or `{"op":"update","kind":"fixtures","id":…,"fields":{"color":…}}`.
+
+Category is derived from type (a sofa is furniture, a refrigerator is equipment, a toilet is fixtures). You never write the category onto the object. Plan-level `colors` overrides (via `apply_ops` `set_colors`) change a Settings group for this plan only; that is separate from a per-object `color`.
+
 ## Tracing a sheet
 
 A permit or construction sheet is not a listing plan. The Bellevue lower floor is the sheet that showed this. Its walls are two thin black lines a few pixels apart, with white between them. Dimension lines, ticks, and the scale bar are thin too. The tracer only keeps long solid bars. It never emits a door or a window.
@@ -84,7 +95,7 @@ A bedroom, bath, closet, office, or utility room is closed: walls all the way ar
 
 ## What is not a wall
 
-These get traced and should come back out: the edge of a tub, a stair tread, a closet rod, a dimension tick, a door tag. Put the fixture on the symbol instead. A full bath gets a tub, a toilet, and a sink. A half bath gets a toilet and a sink on a counter. Built-in cabinets are counters. A diagonal fireplace is a wall along the printed diagonal. There is no fireplace fixture type.
+These get traced and should come back out: the edge of a tub, a stair tread, a closet rod, a dimension tick, a door tag. Put the FF&E object on the symbol instead (`convert_objects` to `fixture`, or `add_object` with a type from `editor_status().ffe_types`). A full bath gets a tub, a toilet, and a sink. A half bath gets a toilet and a sink on a counter. Built-in cabinets are counters. A diagonal fireplace on the sheet is often a wall along the printed diagonal; there is also a `fireplace` FF&E type when the symbol is a freestanding box.
 
 `find_stray_bits` finds traced letters and symbol scraps. Look at each cluster on the sheet, turn room names into labels, and delete the rest. `find_stacked_walls` with `apply` joins thin bars that are one thick wall. `convert_objects` turns pieces into a door, window, fixture, counter, label, or erase region. `set_wall_thickness` keeps the face you name where it is.
 
@@ -95,6 +106,7 @@ Work the open flags one at a time. Read the note, look at the flag on the overla
 - The note is satisfied only when the overlay shows the fix. A door flag is satisfied when the red arc lies on the printed swing. A window flag is satisfied when the opening covers the glass. A "not a wall" flag is satisfied when that object is gone and, if it was a fixture, the fixture is on the symbol. A "walls not closed" flag is satisfied when the walls meet.
 - Mark it done then, with `update_flag` and `done` true. Same pass as the fix.
 - If the fix is in the right place but does not sit on the ink, leave the flag open and say so. Do not mark a guess done.
+- A yellow flag is one you or the agent dropped. A red flag (`by` is `rule`) is a placement rule this plan has turned on. A purple flag (`by` is `pinned`, note "Check all rules.") comes after the drawing flags. Do not mark it done. For each enabled rule `list_rules` shows with no measurement, map the sentence with `set_rule_code`. A measurement is a type, a property, at-least or at-most, and inches. Properties: `side-clearance` and `wall-overlap` take a fixture type or `fixture`; `jamb` takes `door`; `length` takes `wall`. The same property works for any type it accepts. Convert yards and feet to inches first (a yard is 36 inches). If none of those properties measure the sentence, leave the measurement empty and name the sentence. Do not put a script on the rule. Then call `check_rules` with `create_flags` true. That flags every miss on this floor. An ordinary edit flags only the object it just placed or moved, and only a rule that is on and already has a measurement. Changing a sentence clears its measurement. Call `list_rules` before placing a toilet, a door, or another fixture. If the edit you just made raises a red flag, fix that object so the rule passes. The check does not move it. The flag is marked done once a later edit of that object passes. A red flag you did not just cause can stay; the drawing wins when it was already accepted. An edit with no red flag does not mean the sheet is right. Swing, columns, and what is a wall are still read from the drawing.
 
 ## Connecting a harness
 

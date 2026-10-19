@@ -18,7 +18,7 @@
         <button id="tool-window" data-tool="window" title="Click a wall to add a window (N)">Window <kbd>N</kbd></button>
         <button id="tool-counter" data-tool="counter" title="Drag a box counter, or click a corner and type width, depth (C)">Counter <kbd>C</kbd></button>
         <button id="tool-polygon" data-tool="polygon" title="Click the corners of a counter outline (P)">Outline <kbd>P</kbd></button>
-        <button id="tool-fixture" data-tool="fixture" title="Place a fixture (X)">Fixture <kbd>X</kbd></button>
+        <button id="tool-fixture" data-tool="fixture" title="Furniture, fixtures and equipment (X)">FF&amp;E <kbd>X</kbd></button>
         <button id="tool-label" data-tool="label" title="Add a text label (T)">Label <kbd>T</kbd></button>
         <button id="tool-erase" data-tool="erase" title="White out printed ink on the sheet (E)">Erase <kbd>E</kbd></button>
         <button id="tool-calibrate" data-tool="calibrate" title="Set the scale: click two ends of a known length (K)">Scale <kbd>K</kbd></button>
@@ -27,7 +27,7 @@
       </div>
       <div class="group" id="tool-options"></div>
       <div id="pathbar" hidden>
-        <span id="path-folder"></span><span id="path-file"></span>
+        <span id="path-folder"></span><button type="button" id="path-file" aria-haspopup="menu">no plan</button>
       </div>
       <div class="group right">
         <button id="palette-btn" title="Every command and its shortcut (Ctrl+K)">Commands <kbd>Ctrl+K</kbd></button>
@@ -184,6 +184,7 @@
           <button type="button" data-settings-tab="about" role="tab">About</button>
           <button type="button" data-settings-tab="commands" role="tab">Commands</button>
           <button type="button" data-settings-tab="customize" role="tab">Customize</button>
+          <button type="button" data-settings-tab="rules" role="tab">Rules</button>
         </div>
         <div id="settings-about" role="tabpanel">
           <h2 class="about-name">Floor Plan-It</h2>
@@ -212,6 +213,15 @@
           <div class="selection-color">
             <label>Selection <input type="color" id="selection-color" value="#0d47a1" /></label>
             <p class="note">The highlight on what you pick. It stays in the editor and is left out of saved pictures.</p>
+          </div>
+        </div>
+        <div id="settings-rules" role="tabpanel" hidden>
+          <p class="note">Sentences are saved on this computer. Check This plan to use one on the plan you have open. Show rule lists the measurement under a sentence that already has one: the object, the property, at least or at most, and the inches. A purple pin tells a sweep to convert any sentence with no measurement, then measure this floor. Changing the sentence clears its measurement.</p>
+          <div id="rule-rows"></div>
+          <label>New rule<textarea id="new-rule-text" rows="2" spellcheck="true"></textarea></label>
+          <div class="row">
+            <button type="button" id="add-rule">Add rule</button>
+            <button type="button" id="pin-check-all">Pin check-all on this floor</button>
           </div>
         </div>
         <div class="row right">

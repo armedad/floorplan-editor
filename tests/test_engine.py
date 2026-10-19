@@ -26,8 +26,8 @@ def test_unknown_field_and_bad_values_are_errors(sample):
     sample["fixtures"][0]["type"] = "piano"
     sample["openings"][0]["offset"] = 9999
     errors = validate_plan(sample)
-    assert any("color is not a field" in e for e in errors)
-    assert any("not a known fixture" in e for e in errors)
+    assert any("must be one of the palette colors" in e for e in errors)
+    assert any("not a known FF&E type" in e for e in errors)
     assert any("does not fit on wall" in e for e in errors)
 
 

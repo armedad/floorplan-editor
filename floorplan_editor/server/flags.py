@@ -51,7 +51,7 @@ class FlagStore:
                 return flag
         raise FlagError(f"no flag {flag_id!r}")
 
-    def add(self, px: list[float], *, size: list[float] | None = None, note: str = "", target=None, by: str = "user") -> dict:
+    def add(self, px: list[float], *, size: list[float] | None = None, note: str = "", target=None, by: str = "user", rule: str | None = None) -> dict:
         flag = {
             "id": f"F{self.next}",
             "px": [round(float(px[0]), 2), round(float(px[1]), 2)],
@@ -60,6 +60,8 @@ class FlagStore:
             "by": by,
             "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
+        if rule:
+            flag["rule"] = str(rule)
         if size and float(size[0]) > 0 and float(size[1]) > 0:
             flag["size"] = [round(float(size[0]), 2), round(float(size[1]), 2)]
         if target:
@@ -92,7 +94,7 @@ class FlagStore:
         return gone
 
     def clear_done(self) -> list[str]:
-        return self.delete([f["id"] for f in self.flags if f.get("done")])
+        return self.delete([f["id"] for f in self.flags if f.get("done") and f.get("by") != "pinned"])
 
     def listing(self, canvas: dict | None) -> list[dict]:
         """Flags with their place in plan inches added, when a plan gives the scale."""

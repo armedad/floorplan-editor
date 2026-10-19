@@ -30,6 +30,16 @@ from .agents import instructions_text
 from .engine.analyze import object_box, union_box
 from .engine.geometry import along, distance_to_wall, format_length, project, wall_length
 from .engine.model import FIXTURE_TYPES, ID_KEYS, LIST_KEYS, comments_of
+from .engine.rules import (
+    RuleError,
+    add_rule as store_add_rule,
+    check_plan,
+    delete_rule as store_delete_rule,
+    flag_updates,
+    load_rules,
+    set_rule_code as store_set_rule_code,
+    update_rule_text,
+)
 
 URL = os.environ.get("FLOORPLAN_URL", "http://127.0.0.1:35667").rstrip("/")
 LOG = Path(tempfile.gettempdir()) / "floorplan-editor.log"
@@ -179,10 +189,106 @@ def _require_clean(discard_unsaved: bool) -> dict:
 def _op(op: dict, note: str) -> dict:
     state = _post("/api/op", {"op": op})
     _note(note, state.get("ref"), state.get("refs"))
+    rule_flags = _sync_rule_flags(op, state)
+    if rule_flags:
+        fresh = _get("/api/state")
+        fresh["ref"] = state.get("ref")
+        fresh["refs"] = state.get("refs")
+        state = fresh
     summary = _summary(state)
     if state.get("refs") and state.get("plan"):
         summary["touched_all"] = [{"kind": k, "id": i} for k, i in state["refs"]]
+    if rule_flags:
+        summary["rule_flags"] = rule_flags
     return summary
+
+
+def _remember(found: list[tuple], seen: set[tuple], kind, ref) -> None:
+    if kind is None or ref is None:
+        return
+    key = (str(kind), str(ref))
+    if key in seen:
+        return
+    seen.add(key)
+    found.append((kind, ref))
+
+
+def _touched(op: dict, state: dict) -> list[tuple]:
+    """Objects this edit placed, moved, or deleted, in the order the edit named them."""
+    found: list[tuple] = []
+    seen: set[tuple] = set()
+
+    def walk(one) -> None:
+        if not isinstance(one, dict):
+            return
+        name = one.get("op")
+        if name == "batch":
+            for sub in one.get("ops") or []:
+                walk(sub)
+            return
+        kind = one.get("kind")
+        if name in {"add", "update", "delete", "move"} and kind:
+            obj = one.get("obj") if isinstance(one.get("obj"), dict) else {}
+            _remember(found, seen, kind, one.get("id", obj.get("id")))
+        for item in one.get("items") or []:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                _remember(found, seen, item[0], item[1])
+        if name in {"move_wall_end", "resize_wall", "split_wall"}:
+            _remember(found, seen, "walls", one.get("id"))
+        if name in {"flip_door", "slide_opening"}:
+            _remember(found, seen, "openings", one.get("id"))
+        if name == "set_wall_thickness":
+            for wall_id in one.get("ids") or []:
+                _remember(found, seen, "walls", wall_id)
+        if name == "merge_walls":
+            for wall_id in one.get("ids") or []:
+                _remember(found, seen, "walls", wall_id)
+
+    walk(op)
+    refs = state.get("refs") or ([state["ref"]] if state.get("ref") else [])
+    for kind, ref in refs:
+        _remember(found, seen, kind, ref)
+    return found
+
+
+def _sync_rule_flags(op: dict, state: dict) -> list[dict]:
+    """Drop or refresh a red flag on an object this edit placed or moved. The edit itself is already done."""
+    plan = state.get("plan")
+    if not plan:
+        return []
+    touched = _touched(op, state)
+    if not touched:
+        return []
+    actions = flag_updates(check_plan(plan), state.get("flags") or [], touched, plan)
+    return _raise_flags(actions)
+
+
+def _raise_flags(actions: list[dict]) -> list[dict]:
+    raised = []
+    for action in actions:
+        body = {
+            "action": action["action"],
+            "note": action.get("note"),
+            "done": action.get("done"),
+            "x": action.get("x"),
+            "y": action.get("y"),
+            "target": action.get("target"),
+            "by": action.get("by"),
+            "rule": action.get("rule"),
+        }
+        if action["action"] == "update":
+            body["id"] = action["id"]
+        body = {key: value for key, value in body.items() if value is not None}
+        reply = _post("/api/flags", body)
+        raised.append({
+            "id": action.get("id") or reply.get("flag"),
+            "rule": action["rule"],
+            "target": action["target"],
+            "change": action["change"],
+            "note": action.get("note"),
+            "done": action.get("done", False),
+        })
+    return raised
 
 
 # ---------------------------------------------------------------- object geometry
@@ -307,7 +413,10 @@ def _spawn_detached(cmd: list[str]) -> None:
 @mcp.tool()
 def editor_status() -> dict:
     """Whether the editor is running, its URL, the open folder and file, files in the folder,
-    the sheet image, object counts, unsaved state, validation errors, and how many browsers watch it."""
+    the sheet image, object counts, unsaved state, validation errors, and how many browsers watch it.
+
+    Also lists FF&E types (furniture, fixtures, equipment under plan.fixtures) as ffe_types
+    [{id, name, category}] and the fixed per-object color palette as object_colors."""
     if not _running():
         return {"running": False, "url": URL, "hint": "Call start_editor with a plan folder."}
     state = _get("/api/state")
@@ -323,6 +432,8 @@ def editor_status() -> dict:
         "plan_name": plan.get("name"),
         "compass": plan.get("compass"),
         "canvas": plan.get("canvas"),
+        "ffe_types": state.get("ffe_types"),
+        "object_colors": state.get("object_colors"),
     }
 
 
@@ -821,8 +932,8 @@ def convert_objects(
       nearest wall, as wide as the objects along it. `width` overrides the width; long walls in the
       selection are kept. A door's swing faces the side its drawn leaf was on unless swing is given.
       With no ids, `at` [x, y] inches finds the doorway gap at that point.
-    to='fixture': fixture_type (refrigerator, range, oven, dishwasher, toilet, tub, soaking_tub, shower,
-      sink, washer, dryer, washer_dryer, stool, fireplace, cabinet, upper_cabinet, generic) centered on the box; rot turns it clockwise
+    to='fixture': fixture_type from editor_status().ffe_types (category fixtures, furniture, or
+      equipment; all stored under plan.fixtures) centered on the box; rot turns it clockwise
       (90/270 swap w and h so it still fits the box); w/h override the size.
     to='counter' (a box), 'outline' (editable corners), 'label' (text, sized to the box's height),
     'erase' (white out the sheet ink there: good for text and symbols that aren't plan objects).
@@ -963,10 +1074,11 @@ Operations (each a dict with "op"):
 Object fields: walls {id,x1,y1,x2,y2,thickness,kind?:glass_rail} (kind glass_rail draws a glass railing,
 not a solid wall; update it to null to make it a wall again); openings {id,wall,type:door|window,offset,width,
 hinge:start|end,swing:cw|ccw}; counters {id,x,y,w,h,overhang?:{edge,inches}} or {id,points:[[x,y],...]};
-fixtures {id,type,x,y,w,h,rot?} (x,y is the center; rot turns clockwise); labels {text,x,y,size_px?};
-erase {id,x,y,w,h}. Any object may also have comments [{id,text,by,created,edited?}]. Fixture types: refrigerator, range, oven, dishwasher, toilet, tub, soaking_tub,
-shower, sink, washer, dryer, washer_dryer, stool, fireplace, cabinet (tall cabinet or pantry), upper_cabinet, generic.
-Base cabinets and islands are counters.
+fixtures {id,type,x,y,w,h,rot?,color?} (x,y is the center; rot turns clockwise; type is an FF&E id from
+editor_status().ffe_types — fixtures, furniture, or equipment, all under plan.fixtures); labels {text,x,y,size_px?};
+erase {id,x,y,w,h}; measures {id,x1,y1,x2,y2}. Any drawable object may take color from
+editor_status().object_colors (a fixed swatch), or null to clear it and use the Settings group color.
+Any object may also have comments [{id,text,by,created,edited?}]. Base cabinets and islands are counters.
 """
 
 
@@ -983,15 +1095,17 @@ def add_object(kind: Kind, obj: dict) -> dict:
     wall {"x1":0,"y1":0,"x2":120,"y2":0,"thickness":4};
     door {"wall":"w12","type":"door","at":[300,410],"width":30,"hinge":"start","swing":"cw"};
     box counter {"x":860,"y":330,"w":24,"h":42}; outline counter {"points":[[0,0],[60,0],[60,24],[0,24]]};
-    fixture {"type":"toilet","x":327,"y":305,"w":20,"h":28,"rot":90}; label {"text":"PAN","x":879,"y":354};
+    fixture {"type":"toilet","x":327,"y":305,"w":20,"h":28,"rot":90} (type from editor_status().ffe_types;
+    optional color from editor_status().object_colors); label {"text":"PAN","x":879,"y":354};
     erase region {"x":490,"y":481,"w":54,"h":27}. Ids are generated when omitted."""
     return _op({"op": "add", "kind": kind, "obj": obj}, f"added {kind[:-1] if kind != 'erase' else 'erase region'}")
 
 
 @mcp.tool()
 def update_object(kind: Kind, id: str | int, fields: dict) -> dict:
-    """Change fields of one object, e.g. {"thickness": 5} or {"rot": 180}. A null value removes the field.
-    Renaming a wall's id updates its doors and windows."""
+    """Change fields of one object, e.g. {"thickness": 5}, {"rot": 180}, {"type":"sofa"}, or
+    {"color":"#1565c0"}. color must be one of editor_status().object_colors; null clears it
+    (Default = Settings group color). Renaming a wall's id updates its doors and windows."""
     return _op({"op": "update", "kind": kind, "id": id, "fields": fields}, f"updated {id}")
 
 
@@ -1303,11 +1417,119 @@ def merge_steps(
     return _summary(state)
 
 
+# ---------------------------------------------------------------- placement rules
+
+
+def _plan_or_none() -> dict | None:
+    try:
+        return _open_plan()
+    except ToolError:
+        return None
+
+
+def _rule_view(plan: dict | None = None) -> dict:
+    rules = load_rules()
+    enabled = list((plan or {}).get("enabled_rules") or [])
+    on = set(enabled)
+    unconverted = [row["id"] for row in rules if row["id"] in on and not row.get("code")]
+    return {"count": len(rules), "rules": rules, "enabled": enabled, "unconverted": unconverted}
+
+
+@mcp.tool()
+def list_rules() -> dict:
+    """Sentences saved on this computer, the measurement beside each one, and which this plan has turned on.
+    unconverted lists enabled sentences that have no measurement yet. A sentence with none does nothing
+    until the pinned check converts it. Read this before placing a toilet, a door, or another fixture.
+    The editor never moves an object to satisfy a rule."""
+    plan = _plan_or_none()
+    return _rule_view(plan)
+
+
+@mcp.tool()
+def add_rule(text: str) -> dict:
+    """Save a sentence on this computer. It has no check and is not turned on for any plan. This drops no flag."""
+    try:
+        store_add_rule(text)
+    except RuleError as exc:
+        raise ToolError(str(exc)) from exc
+    return _rule_view(_plan_or_none())
+
+
+@mcp.tool()
+def update_rule(rule_id: str, text: str) -> dict:
+    """Replace a rule's sentence. Different words clear its check immediately, so the old number cannot keep running."""
+    try:
+        update_rule_text(rule_id, text)
+    except RuleError as exc:
+        raise ToolError(str(exc)) from exc
+    return _rule_view(_plan_or_none())
+
+
+@mcp.tool()
+def set_rule_code(rule_id: str, type: str = "", property: str = "", compare: str = "", inches: float = 0) -> dict:
+    """Attach a measurement to a sentence, or clear it.
+
+    type is a fixture type (toilet, sink, tub, ...), fixture for every fixture, door, or wall.
+    property is side-clearance, wall-overlap, jamb, or length.
+    side-clearance and wall-overlap take a fixture type or fixture. jamb takes door. length takes wall.
+    compare is at-least or at-most. inches is the number. Convert first: 1 yard is 36 inches, 1 foot is 12.
+    The same property works for any type it accepts, so a sink can use side-clearance without new code.
+    Pass an empty type to clear the measurement. If none of those properties measure the sentence,
+    leave it empty and name the sentence. Do not put a script on the rule."""
+    try:
+        if not type or not property:
+            store_set_rule_code(rule_id, None)
+        else:
+            store_set_rule_code(rule_id, {"type": type, "property": property, "compare": compare, "inches": inches})
+    except RuleError as exc:
+        raise ToolError(str(exc)) from exc
+    return _rule_view(_plan_or_none())
+
+
+@mcp.tool()
+def delete_rule(rule_id: str) -> dict:
+    """Remove a sentence someone added. A built-in sentence stays."""
+    try:
+        store_delete_rule(rule_id)
+    except RuleError as exc:
+        raise ToolError(str(exc)) from exc
+    return _rule_view(_plan_or_none())
+
+
+@mcp.tool()
+def set_rule_enabled(rule_id: str, on: bool = True) -> dict:
+    """Turn a saved rule on or off for the plan that is open. Another plan is unchanged."""
+    return _op({"op": "set_enabled_rules", "id": rule_id, "on": bool(on)}, f"rule {rule_id} {'on' if on else 'off'}")
+
+
+@mcp.tool()
+def check_rules(create_flags: bool = False) -> dict:
+    """Measure this floor with the rules it has turned on that already have a check.
+
+    create_flags false reports only. create_flags true is for the purple pinned flag: it drops or
+    refreshes a red flag for every miss on this floor. Convert enabled sentences that have no check
+    first. This never moves anything and never marks the pinned flag done. An ordinary edit flags
+    only the object it just placed or moved."""
+    plan = _open_plan()
+    violations = check_plan(plan)
+    raised = []
+    if create_flags:
+        state = _get("/api/state")
+        touched = []
+        for kind in ("walls", "openings", "fixtures"):
+            for item in plan.get(kind) or []:
+                if isinstance(item, dict) and item.get("id") is not None:
+                    touched.append([kind, item["id"]])
+        raised = _raise_flags(flag_updates(violations, state.get("flags") or [], touched, plan))
+    view = _rule_view(plan)
+    return {"count": len(violations), "violations": violations, "rule_flags": raised, "unconverted": view["unconverted"]}
+
+
 # ---------------------------------------------------------------- flags
 
 
 def _flag_view(plan: dict | None, flag: dict) -> dict:
-    out = {k: flag[k] for k in ("id", "note", "done", "by", "x", "y", "w", "h") if k in flag}
+    out = {k: flag[k] for k in ("id", "note", "done", "by", "rule", "x", "y", "w", "h") if k in flag}
     if not plan or "x" not in flag:
         return out
     target = flag.get("target")

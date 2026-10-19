@@ -26,7 +26,8 @@ def test_harness_instructions_are_the_guide():
     from floorplan_editor.agents import instructions_text
 
     guide = instructions_text()
-    assert "list_flags" in guide and "view_image" in guide
+    assert "list_flags" in guide and "view_image" in guide and "pinned" in guide
+    assert "ffe_types" in guide and "object_colors" in guide and "FF&E and colors" in guide
     assert m.mcp.instructions == guide
 
 
@@ -316,3 +317,35 @@ def test_open_anything_turns_an_image_into_a_project(live, sample_folder, tmp_pa
     assert out["opened"]["how"] == "new_from_image" and out["file"] == "plan.json"
     assert out["folder"] == str(tmp_path / "workspace" / "scan")
     assert m.open_anything(str(sample_folder / "plan.json"), open_browser=False)["folder"] == str(sample_folder)
+
+
+def test_a_tight_toilet_is_flagged_and_left_where_it_was(live):
+    m.set_rule_enabled("toilet-side-clearance", True)
+    added = m.add_object("fixtures", {"type": "toilet", "x": 312, "y": 40, "w": 18, "h": 28, "rot": 0})
+    toilet = added["touched"]["id"]
+    assert added["touched"]["object"]["x"] == 312
+    assert len(added["rule_flags"]) == 1
+    flag = added["rule_flags"][0]
+    assert flag["rule"] == "toilet-side-clearance" and flag["change"] == "opened"
+    assert flag["target"] == ["fixtures", toilet] and flag["done"] is False
+
+    listed = m.list_flags()
+    stored = next(item for item in listed["flags"] if item["id"] == flag["id"])
+    assert stored["by"] == "rule" and stored["rule"] == "toilet-side-clearance"
+
+    report = m.check_rules()
+    assert any(item["rule"] == "toilet-side-clearance" and item["objects"][0] == ["fixtures", toilet] for item in report["violations"])
+    assert m.list_flags()["count"] == listed["count"]
+
+    nudged = m.move_object("fixtures", toilet, 1, 0)
+    assert nudged["touched"]["object"]["x"] == 313
+    assert nudged["rule_flags"][0]["id"] == flag["id"] and nudged["rule_flags"][0]["change"] == "updated"
+    assert m.list_flags()["count"] == listed["count"]
+
+    cleared = m.move_object("fixtures", toilet, 20, 0)
+    assert cleared["touched"]["object"]["x"] == 333
+    assert cleared["rule_flags"][0]["change"] == "done" and cleared["rule_flags"][0]["id"] == flag["id"]
+    assert flag["id"] not in {item["id"] for item in m.list_flags()["flags"]}
+    done = next(item for item in m.list_flags(include_done=True)["flags"] if item["id"] == flag["id"])
+    assert done["done"] is True
+

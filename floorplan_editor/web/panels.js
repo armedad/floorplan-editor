@@ -8,7 +8,87 @@ import { mergeStacked, selectFound } from "./convert.js";
 import { copyAllFlags, copyText, deleteFlags, editFlagNote, flagText, renderFlagsPanel, setFlagDone, zoomToFlag } from "./flags.js";
 import { formatLength, parseLength, round2, wallAngle, wallFrame } from "./geom.js";
 import { dimsFor, opForDim } from "./measure.js";
-import { $, el } from "./ui.js";
+import { $, combobox, el } from "./ui.js";
+
+const COLOR_NAMES = {
+  "#1a1a1a": "black",
+  "#ffffff": "white",
+  "#bdbdbd": "light gray",
+  "#616161": "dark gray",
+  "#c62828": "red",
+  "#ef6c00": "orange",
+  "#f9a825": "yellow",
+  "#2e7d32": "green",
+  "#1565c0": "blue",
+  "#6a1b9a": "purple",
+  "#6d4c41": "brown",
+  "#00897b": "teal",
+};
+
+const CATEGORY_ORDER = ["fixtures", "furniture", "equipment"];
+const CATEGORY_LABEL = { fixtures: "Fixtures", furniture: "Furniture", equipment: "Equipment" };
+
+function ffeGroups() {
+  const catalog = (app.state && app.state.ffe_types) || [];
+  if (catalog.length) {
+    return CATEGORY_ORDER.map((cat) => ({
+      name: CATEGORY_LABEL[cat],
+      items: catalog.filter((item) => item.category === cat).map((item) => ({ id: item.id, name: item.name })),
+    })).filter((g) => g.items.length);
+  }
+  const types = (app.state && app.state.fixture_types) || [];
+  return [{ name: "FF&E", items: types.map((t) => ({ id: t, name: String(t).replace(/_/g, " ") })) }];
+}
+
+function applyColor(objs, color) {
+  const v = color || null;
+  if (objs.length === 1) {
+    const { kind, id } = objs[0]._sel;
+    update(kind, id, { color: v });
+    return;
+  }
+  E.send({
+    op: "batch",
+    ops: objs.map((obj) => ({ op: "update", kind: obj._sel.kind, id: obj._sel.id, fields: { color: v } })),
+  });
+}
+
+function colorField(objs, { mixed = false } = {}) {
+  const colors = (app.state && app.state.object_colors) || Object.keys(COLOR_NAMES);
+  const values = objs.map((obj) => (obj && obj.color) || "");
+  const same = values.every((v) => v === values[0]);
+  const current = mixed || !same ? null : values[0] || "";
+  const mixedState = mixed || !same;
+  const pick = (value, title, { blank = false, hex = "" } = {}) => {
+    const on = !mixedState && ((blank && !current) || (!blank && current === hex));
+    const light = !blank && hex.toLowerCase() === "#ffffff";
+    return el("button", {
+      type: "button",
+      class: `color-swatch${blank ? " default" : ""}${light ? " light" : ""}${on ? " on" : ""}${mixedState && blank ? " mixed" : ""}`,
+      title,
+      "aria-label": title,
+      "aria-pressed": on ? "true" : "false",
+      style: blank ? undefined : `background:${hex}`,
+      on: { click: () => applyColor(objs, value) },
+    });
+  };
+  return el(
+    "div",
+    { class: "field" },
+    el("label", {}, "color"),
+    el(
+      "div",
+      { class: "color-pick" },
+      pick(null, mixedState ? "mixed — click for Default" : "Default (Settings color)", { blank: true }),
+      ...colors.map((c) => pick(c, COLOR_NAMES[c] || c, { hex: c })),
+    ),
+    el("span"),
+  );
+}
+
+function withSel(kind, id, obj) {
+  return { ...obj, _sel: { kind, id } };
+}
 
 const CARDINALS = ["north", "east", "south", "west"];
 let app = null;
@@ -288,6 +368,7 @@ function wallProps(w) {
   const dims = dimsFor(app.plan, k, w.id);
   const f = wallFrame(w);
   return [
+    colorField([withSel(k, w.id, w)]),
     ...dimFields(k, w.id, dims, ["length"]),
     lengthField(
       "angle",
@@ -317,6 +398,7 @@ function openingProps(o) {
   const door = o.type === "door";
   const dims = dimsFor(app.plan, k, o.id);
   return [
+    colorField([withSel(k, o.id, o)]),
     selectField("type", o.type, [["door", "door"], ["window", "window"]], (v) =>
       update(k, o.id, v === "door" ? { type: "door", hinge: "start", swing: "ccw" } : { type: "window", hinge: null, swing: null }),
     ),
@@ -342,6 +424,7 @@ function counterProps(c) {
     });
     const edges = dims.filter((d) => d.key.startsWith("edge-"));
     return [
+      colorField([withSel(k, c.id, c)]),
       ...edges.map((d) => lengthField(`edge ${Number(d.key.slice(5)) + 1}`, d.value, (v) => E.send(opForDim(app.plan, k, c.id, d, v)), { min: 0.5 })),
       ...dimFields(k, c.id, dims, ["gaps"]),
       el("p", { class: "note" }, "Typing an edge length moves the corner at its end. Drag a corner to move it, drag a midpoint dot to add one, Alt+click a corner to remove it."),
@@ -350,6 +433,7 @@ function counterProps(c) {
   }
   const over = c.overhang || null;
   return [
+    colorField([withSel(k, c.id, c)]),
     ...dimFields(k, c.id, dims, ["w", "h"]),
     ...dimFields(k, c.id, dims, ["gaps"]),
     selectField("overhang", over ? over.edge : "", [["", "none"], ...CARDINALS.map((d) => [d, `${d} side`])], (v) =>
@@ -362,10 +446,10 @@ function counterProps(c) {
 
 function fixtureProps(f) {
   const k = "fixtures";
-  const types = (app.state && app.state.fixture_types) || [];
   const dims = dimsFor(app.plan, k, f.id);
   return [
-    selectField("type", f.type, types.map((t) => [t, t.replace("_", " ")]), (v) => update(k, f.id, { type: v })),
+    colorField([withSel(k, f.id, f)]),
+    combobox({ label: "type", value: f.type, groups: ffeGroups(), onPick: (v) => update(k, f.id, { type: v }) }),
     ...dimFields(k, f.id, dims, ["w", "h"]),
     lengthField("rotation", f.rot || 0, (v) => update(k, f.id, { rot: v ? ((v % 360) + 360) % 360 : null }), { unit: "angle", hint: "° clockwise" }),
     ...dimFields(k, f.id, dims, ["gaps"]),
@@ -376,6 +460,7 @@ function fixtureProps(f) {
 function labelProps(label, index) {
   const k = "labels";
   return [
+    colorField([withSel(k, index, label)]),
     textField("text", label.text, (v) => v.trim() && update(k, index, { text: v.trim() })),
     lengthField("center x", label.x, (v) => update(k, index, { x: v })),
     lengthField("center y", label.y, (v) => update(k, index, { y: v })),
@@ -387,6 +472,7 @@ function eraseProps(r) {
   const k = "erase";
   const dims = dimsFor(app.plan, k, r.id);
   return [
+    colorField([withSel(k, r.id, r)]),
     ...dimFields(k, r.id, dims, ["w", "h"]),
     el("p", { class: "note" }, "Whites out the sheet under it, in the editor and in saved overlays."),
     more("Position and id", lengthField("left x", r.x, (v) => update(k, r.id, { x: v })), lengthField("top y", r.y, (v) => update(k, r.id, { y: v })), idField(k, r)),
@@ -456,8 +542,16 @@ function multiProps(info) {
   }
   const ids = info.planKeys.map((k) => (k.startsWith("labels:") ? k : E.splitKey(k)[1]));
   const walls = info.planKeys.length === info.n && info.kinds.size === 1 && info.kinds.has("walls") ? info.planKeys.map((k) => E.getObject(k)) : null;
+  const colorable = info.planKeys
+    .map((key) => {
+      const [kind, id] = E.splitKey(key);
+      const obj = E.getObject(key);
+      return obj ? withSel(kind, kind === "labels" ? Number(id) : id, obj) : null;
+    })
+    .filter(Boolean);
   return [
     el("p", {}, Object.entries(counts).map(([k, n]) => `${n} ${n === 1 ? k.replace(/s$/, "") : k}`).join(", ")),
+    colorable.length ? colorField(colorable) : null,
     walls ? thicknessFields(walls) : null,
     walls ? railField(walls) : null,
     ids.length

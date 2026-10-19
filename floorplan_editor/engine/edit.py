@@ -353,6 +353,27 @@ def op_move(plan: dict, op: dict):
     return [kind, ref]
 
 
+def op_set_enabled_rules(plan: dict, op: dict):
+    """Turn global rules on or off for this plan. The sentences themselves stay on the computer."""
+    if "ids" in op:
+        ids = op["ids"]
+        if not isinstance(ids, list) or any(not isinstance(item, str) or not item.strip() for item in ids):
+            raise EditError("enabled rules must be a list of rule ids")
+        chosen = list(dict.fromkeys(item.strip() for item in ids))
+    else:
+        rid = op.get("id")
+        if not isinstance(rid, str) or not rid.strip():
+            raise EditError("a rule id is required")
+        chosen = [item for item in plan.get("enabled_rules") or [] if item != rid]
+        if op.get("on"):
+            chosen.append(rid.strip())
+    if chosen:
+        plan["enabled_rules"] = chosen
+    else:
+        plan.pop("enabled_rules", None)
+    return None
+
+
 def _items(op: dict) -> list[tuple[str, object]]:
     items = op.get("items")
     if not isinstance(items, list) or not items:
@@ -924,10 +945,19 @@ def op_convert(plan: dict, op: dict):
 
 
 def op_batch(plan: dict, op: dict):
-    ref = None
+    """Every object the batch places or changes, in order. One object stays a single reference."""
+    refs = []
     for sub in op["ops"]:
         plan, ref = _apply(plan, sub)
-    return plan, ref
+        if not ref:
+            continue
+        if isinstance(ref[0], list):
+            refs.extend(ref)
+        else:
+            refs.append(ref)
+    if len(refs) == 1:
+        return plan, refs[0]
+    return plan, refs or None
 
 
 OPS = {
@@ -951,6 +981,7 @@ OPS = {
     "set_compass": op_set_compass,
     "set_meta": op_set_meta,
     "set_colors": op_set_colors,
+    "set_enabled_rules": op_set_enabled_rules,
     "add_walls": op_add_walls,
     "merge_walls": op_merge_walls,
     "merge_stacked": op_merge_stacked,

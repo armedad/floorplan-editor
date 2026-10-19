@@ -474,8 +474,11 @@ is unique across the whole plan.
   swing `cw` or `ccw`. Openings must fit on the wall and not overlap each other.
 - **counters** are either a box (`x`, `y`, `w`, `h`, with an optional overhang on one
   compass edge) or an outline of at least three `points`.
-- **fixtures** are boxes centered on `x`, `y`, with a `type` and an optional rotation `rot`
-  in degrees, turned clockwise on screen about that center.
+- **fixtures** (FF&E: furniture, fixtures, and equipment) are boxes centered on `x`, `y`,
+  with a `type` and an optional rotation `rot` in degrees, turned clockwise on screen about
+  that center. The type's category (fixtures, furniture, or equipment) picks which Settings
+  color group draws it. Any drawable object may also set `color` to one of the fixed swatches
+  (see `editor_status().object_colors`) to override the group color; omit or clear it for Default.
 - **labels** are text centered at `x`, `y`. `size_px` is the font size on the sheet.
 - **erase** regions are boxes that white out the sheet under them in the editor and in
   overlays.
@@ -545,18 +548,45 @@ To use a port other than 35667, add `"env": { "FLOORPLAN_URL": "http://127.0.0.1
 
 Then ask Cursor things like "open the editor on ~/floorplans/39c, delete the tub's front
 wall, put a toilet there facing east, and save it as a step," or drop flags in the
-browser and say "do what F1 and F2 say." The tools:
+browser and say "do what F1 and F2 say."
+
+### FF&E types and per-object colors
+
+`editor_status` lists everything an agent needs:
+
+- `ffe_types`: `[{id, name, category}]` for furniture, fixtures, and equipment. All of them
+  are stored under `plan.fixtures`; `category` is `fixtures`, `furniture`, or `equipment`
+  and only chooses which Settings color group draws the object.
+- `object_colors`: the fixed swatch palette (twelve `#rrggbb` values). There is no free
+  color picker — only these swatches, or Default (no `color` / `color: null`).
+
+Examples:
+
+```text
+add_object("fixtures", {"type": "sofa", "x": 120, "y": 80, "w": 84, "h": 36})
+add_object("fixtures", {"type": "refrigerator", "x": 40, "y": 20, "w": 36, "h": 30, "color": "#546e7a"})
+update_object("fixtures", "sofa-1", {"type": "loveseat"})
+update_object("walls", "w12", {"color": "#1565c0"})
+update_object("fixtures", "sofa-1", {"color": null})
+convert_objects(to="fixture", fixture_type="toilet", ids=[…])
+```
+
+`apply_ops` accepts the same fields on `add` / `update`. Plan-level group overrides use
+`{"op":"set_colors","colors":{"furniture":"#6d4c41"}}` and are separate from per-object
+`color`. Behavior for harnesses is also in [AGENTS.md](AGENTS.md) under "FF&E and colors".
+
+The tools:
 
 | Area | Tools |
 | --- | --- |
-| Editor | `editor_status`, `start_editor` (starts `floorplan serve` in the background if needed, or switches folders), `stop_editor` |
+| Editor | `editor_status` (also returns `ffe_types` and `object_colors`), `start_editor` (starts `floorplan serve` in the background if needed, or switches folders), `stop_editor` |
 | Files and images | `open_anything` (a plan, folder, or image, recognized the same way as the browser's Open), `open_plan` (a name in the folder, or any plan JSON on disk), `import_file` (copy a plan or a sheet image into the folder), `new_plan_from_image` (with optional auto-trace) |
 | Flags | `list_flags` (each flag's note, place, and what it sits on or near), `add_flag`, `update_flag` (note, done, position), `delete_flags` |
 | Comments | `list_comments` (all, or filtered by objects, the selection, comment ids, text, or author; each with the object it's on), `add_comment` (on one object, or the one selected), `update_comment` (text, or move it to another object), `delete_comments` |
 | Looking | `view_image` (overlay, sheet, plan alone, or any PNG in the folder, cropped to a region in inches or around a flag, with flags drawn on and commented objects tagged with their comment ids in purple; crops label every object's id, and `highlight` or the user's selection is outlined in blue), `get_plan`, `find_objects` (by position, region, type, or text), `get_objects` (full objects by id) |
 | What you selected | `get_selection` (the objects selected in the browser, their box, and whether the walls run the same way); `control_browser` with `ids` selects objects for you to look at |
 | Cleaning up a trace | `convert_objects` (ids or the selection into a wall, door, window, fixture, counter, outline, label, or erase region), `merge_walls`, `set_wall_thickness` (with the face that stays put), `find_stacked_walls` (and `apply` to merge them), `find_stray_bits` (and `delete`) |
-| Editing | `add_object`, `update_object`, `delete_objects`, `move_object`, `move_wall_end`, `split_wall`, `edit_counter_outline`, `flip_door`, `rotate_fixture`, `set_plan_properties` (name, notes, compass, scale), `trace_walls` (merging stacked bars unless `merge_stacked` is off), and `apply_ops` for any batch of edit operations as one undo step |
+| Editing | `add_object`, `update_object` (including FF&E `type` and per-object `color`), `delete_objects`, `move_object`, `move_wall_end`, `split_wall`, `edit_counter_outline`, `flip_door`, `rotate_fixture`, `set_plan_properties` (name, notes, compass, scale), `trace_walls` (merging stacked bars unless `merge_stacked` is off), and `apply_ops` for any batch of edit operations as one undo step |
 | Floors | `floors` (list, switch, add from a plan or a traced image, rename, move, delete, rename the building), `export_jpeg` (every floor stacked in one picture) |
 | History and saving | `undo`, `redo`, `revert`, `save` (overwrite, next step, a new name, or a new folder with every floor's sheet), `merge_steps` |
 | The page | `control_browser`: open the page, select, zoom to an object or region, fit, switch tools, toggle the sheet, erase regions, snapping, grid, and side panel, or show a message |

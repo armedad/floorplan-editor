@@ -4,6 +4,9 @@ Group membership and the default colors are an editor preference on this compute
 opened here uses them. A plan can override a group's color; that override is stored on the plan
 and travels with the file. Another computer uses its own groups, then applies those overrides
 where the group id matches.
+
+FF&E (furniture, fixtures, and equipment) uses three kinds: fixtures, furniture, and equipment.
+An older preference file that only had fixtures is expanded to those three when loaded.
 """
 
 from __future__ import annotations
@@ -13,12 +16,18 @@ import os
 import re
 from pathlib import Path
 
-KINDS = ("walls", "doors", "windows", "counters", "fixtures", "labels", "measures")
+KINDS = ("walls", "doors", "windows", "counters", "fixtures", "furniture", "equipment", "labels", "measures")
 
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 # Darker than the fixture blue (#1e88e5), and only used for the editor's selection highlight.
 DEFAULT_SELECTED = "#0d47a1"
+
+_FFE_DEFAULTS = (
+    {"id": "fixtures", "name": "Fixtures", "color": "#1e88e5", "kinds": ["fixtures"]},
+    {"id": "furniture", "name": "Furniture", "color": "#6d4c41", "kinds": ["furniture"]},
+    {"id": "equipment", "name": "Equipment", "color": "#546e7a", "kinds": ["equipment"]},
+)
 
 
 def is_color(value) -> bool:
@@ -32,7 +41,7 @@ def default_appearance() -> dict:
             {"id": "walls", "name": "Walls", "color": "#c40000", "kinds": ["walls"]},
             {"id": "openings", "name": "Openings", "color": "#ef9a9a", "kinds": ["doors", "windows"]},
             {"id": "counters", "name": "Counters", "color": "#424242", "kinds": ["counters"]},
-            {"id": "fixtures", "name": "Fixtures", "color": "#1e88e5", "kinds": ["fixtures"]},
+            *_FFE_DEFAULTS,
             {"id": "labels", "name": "Labels", "color": "#000000", "kinds": ["labels"]},
             {"id": "measures", "name": "Measurements", "color": "#ef6c00", "kinds": ["measures"]},
         ],
@@ -63,13 +72,37 @@ def save_appearance(raw: dict) -> dict:
     return appearance
 
 
+def _expand_legacy_ffe(groups: list[dict]) -> list[dict]:
+    """An older file only had fixtures. Add furniture and equipment beside it."""
+    seen = [kind for group in groups for kind in group.get("kinds") or []]
+    if "furniture" in seen and "equipment" in seen:
+        return groups
+    if "fixtures" not in seen:
+        return groups
+    out = []
+    for group in groups:
+        kinds = [kind for kind in group.get("kinds") or [] if kind in KINDS or kind == "fixtures"]
+        if not kinds and group.get("kinds"):
+            continue
+        out.append({**group, "kinds": kinds})
+    have = {kind for group in out for kind in group["kinds"]}
+    insert_at = next((i + 1 for i, group in enumerate(out) if "fixtures" in group["kinds"]), min(3, len(out)))
+    for spec in _FFE_DEFAULTS:
+        if spec["kinds"][0] not in have:
+            out.insert(insert_at, dict(spec))
+            insert_at += 1
+            have.add(spec["kinds"][0])
+    return out
+
+
 def normalize_appearance(raw) -> dict | None:
     if not isinstance(raw, dict) or not isinstance(raw.get("groups"), list) or not raw["groups"]:
         return None
+    groups_in = _expand_legacy_ffe(raw["groups"])
     seen: list[str] = []
     ids: set[str] = set()
     groups = []
-    for group in raw["groups"]:
+    for group in groups_in:
         if not isinstance(group, dict):
             return None
         gid, name, color, kinds = group.get("id"), group.get("name"), group.get("color"), group.get("kinds")

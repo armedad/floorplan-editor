@@ -18,6 +18,7 @@ export const HELP = {
     ],
   },
   "open-more": { tip: "Recent folders, a typed path, or the browser's own file picker" },
+  "path-file": { tip: "Copy the full path, the file name, or the folder" },
   "tool-select": {
     tip: "Click to select. Ctrl+drag a box to select an area (Shift+drag adds). Drag empty space to pan. Right-click for actions.",
     keys: "V",
@@ -209,6 +210,8 @@ export const HELP = {
   "flags-add": { tip: "Drop a flag: click a spot or drag an area", keys: "F" },
   "flags-copy": { tip: "Copy every open flag, with notes, to paste into a Cursor chat" },
   "flags-clear": { tip: "Remove the flags marked done" },
+  "flags-undo-all": { tip: "Mark every done flag not done" },
+  "flags-remove-all": { tip: "Remove every flag on this floor. Flags are not part of Undo." },
 
   // ---------------------------------------------------------------- side panel: folder and steps
   "folder-input": { tip: "Type or paste a folder path, then Go" },

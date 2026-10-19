@@ -15,25 +15,98 @@ from .geometry import wall_length
 CARDINALS = ("north", "east", "south", "west")
 SIDES = ("up", "right", "down", "left")
 SIDE_VEC = {"up": (0, -1), "right": (1, 0), "down": (0, 1), "left": (-1, 0)}
+# FF&E: furniture, fixtures, and equipment. Stored under plan.fixtures; category is by type.
+FIXTURE_CATEGORIES = ("fixtures", "furniture", "equipment")
+
 FIXTURE_TYPES = (
-    "refrigerator",
-    "range",
-    "oven",
-    "dishwasher",
+    # fixtures
     "toilet",
     "tub",
     "soaking_tub",
     "shower",
     "sink",
-    "washer",
-    "dryer",
-    "washer_dryer",
-    "stool",
     "fireplace",
     "cabinet",
     "upper_cabinet",
     "generic",
+    # furniture
+    "stool",
+    "bed",
+    "sofa",
+    "loveseat",
+    "armchair",
+    "dining_chair",
+    "coffee_table",
+    "dining_table",
+    "nightstand",
+    "dresser",
+    "desk",
+    "bookshelf",
+    "tv_stand",
+    "ottoman",
+    "bench",
+    "aquarium",
+    # equipment
+    "refrigerator",
+    "range",
+    "oven",
+    "dishwasher",
+    "washer",
+    "dryer",
+    "washer_dryer",
+    "water_heater",
+    "hvac",
+    "furnace",
+    "computer",
+    "exercise_equipment",
+    "tv_monitor",
+    "electrical_panel",
+    "server_rack",
 )
+
+FIXTURE_CATEGORY = {
+    "toilet": "fixtures",
+    "tub": "fixtures",
+    "soaking_tub": "fixtures",
+    "shower": "fixtures",
+    "sink": "fixtures",
+    "fireplace": "fixtures",
+    "cabinet": "fixtures",
+    "upper_cabinet": "fixtures",
+    "generic": "fixtures",
+    "stool": "furniture",
+    "bed": "furniture",
+    "sofa": "furniture",
+    "loveseat": "furniture",
+    "armchair": "furniture",
+    "dining_chair": "furniture",
+    "coffee_table": "furniture",
+    "dining_table": "furniture",
+    "nightstand": "furniture",
+    "dresser": "furniture",
+    "desk": "furniture",
+    "bookshelf": "furniture",
+    "tv_stand": "furniture",
+    "ottoman": "furniture",
+    "bench": "furniture",
+    "aquarium": "furniture",
+    "refrigerator": "equipment",
+    "range": "equipment",
+    "oven": "equipment",
+    "dishwasher": "equipment",
+    "washer": "equipment",
+    "dryer": "equipment",
+    "washer_dryer": "equipment",
+    "water_heater": "equipment",
+    "hvac": "equipment",
+    "furnace": "equipment",
+    "computer": "equipment",
+    "exercise_equipment": "equipment",
+    "tv_monitor": "equipment",
+    "electrical_panel": "equipment",
+    "server_rack": "equipment",
+}
+
 FIXTURE_LABELS = {
     "refrigerator": "REF",
     "oven": "OV",
@@ -42,7 +115,49 @@ FIXTURE_LABELS = {
     "dryer": "D",
     "washer_dryer": "W/D",
     "upper_cabinet": "UPPER",
+    "water_heater": "WH",
+    "hvac": "HVAC",
+    "furnace": "FURN",
+    "computer": "PC",
+    "exercise_equipment": "EXER",
+    "tv_monitor": "TV",
+    "electrical_panel": "PANEL",
+    "server_rack": "RACK",
+    "dining_chair": "CHAIR",
+    "coffee_table": "TABLE",
+    "dining_table": "TABLE",
+    "tv_stand": "TV ST",
 }
+
+# Fixed swatches for a per-object color override. Default means the Settings color for that kind.
+OBJECT_COLORS = (
+    "#1a1a1a",
+    "#ffffff",
+    "#bdbdbd",
+    "#616161",
+    "#c62828",
+    "#ef6c00",
+    "#f9a825",
+    "#2e7d32",
+    "#1565c0",
+    "#6a1b9a",
+    "#6d4c41",
+    "#00897b",
+)
+OBJECT_COLOR_SET = {c.lower() for c in OBJECT_COLORS}
+
+
+def fixture_category(fixture_type: str) -> str:
+    return FIXTURE_CATEGORY.get(fixture_type, "fixtures")
+
+
+def fixture_catalog() -> list[dict]:
+    """Types an agent or the UI can place, with the FF&E group each belongs to."""
+    return [{"id": t, "name": t.replace("_", " "), "category": fixture_category(t)} for t in FIXTURE_TYPES]
+
+
+def is_object_color(value) -> bool:
+    return isinstance(value, str) and value.lower() in OBJECT_COLOR_SET
 WALL_KINDS = ("glass_rail",)
 ID_KEYS = ("walls", "openings", "counters", "fixtures", "erase", "measures")
 LIST_KEYS = ID_KEYS + ("labels",)
@@ -100,6 +215,15 @@ def _fields(obj: dict, required: set[str], optional: set[str], path: str, errors
         errors.append(f"{path}.{key} is required")
     for key in sorted(extra):
         errors.append(f"{path}.{key} is not a field")
+
+
+def _object_color(obj: dict, path: str, errors: list[str]) -> None:
+    if "color" not in obj:
+        return
+    if not is_object_color(obj.get("color")):
+        errors.append(f"{path}.color must be one of the palette colors")
+    else:
+        obj["color"] = obj["color"].lower()
 
 
 def comments_of(plan: dict):
@@ -230,9 +354,17 @@ def _validate_colors(plan: dict, errors: list[str]) -> None:
             errors.append(f"plan.colors.{key} must be a #rrggbb color")
 
 
+def _validate_enabled_rules(plan: dict, errors: list[str]) -> None:
+    if "enabled_rules" not in plan:
+        return
+    rules = plan["enabled_rules"]
+    if not isinstance(rules, list) or any(not isinstance(item, str) or not item.strip() for item in rules):
+        errors.append("plan.enabled_rules must be a list of rule ids")
+
+
 def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
     errors: list[str] = []
-    optional = set(LIST_KEYS) | {"name", "notes", "sheet", "colors"} | ({"id"} if floor else set())
+    optional = set(LIST_KEYS) | {"name", "notes", "sheet", "colors", "enabled_rules"} | ({"id"} if floor else set())
     _fields(plan, {"units", "compass", "canvas"}, optional, "plan", errors)
     if plan.get("units") != "inches":
         errors.append("plan.units must be 'inches'")
@@ -242,6 +374,7 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
     if "sheet" in plan and not (isinstance(plan["sheet"], str) and SHEET_NAME.match(plan["sheet"])):
         errors.append("plan.sheet must be the name of a .png or .jpg in the plan's folder")
     _validate_colors(plan, errors)
+    _validate_enabled_rules(plan, errors)
 
     compass = plan.get("compass")
     if not isinstance(compass, dict):
@@ -288,7 +421,8 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
         if not isinstance(wall, dict):
             errors.append(f"{path} must be an object")
             continue
-        _fields(wall, {"id", "x1", "y1", "x2", "y2", "thickness"}, {"kind"} | COMMENTED, path, errors)
+        _fields(wall, {"id", "x1", "y1", "x2", "y2", "thickness"}, {"kind", "color"} | COMMENTED, path, errors)
+        _object_color(wall, path, errors)
         wall_id = take_id(wall.get("id"), f"{path}.id")
         if "kind" in wall and wall["kind"] not in WALL_KINDS:
             errors.append(f"{path}.kind must be one of {', '.join(WALL_KINDS)}")
@@ -309,7 +443,8 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
             continue
         kind = opening.get("type")
         optional = {"hinge", "swing"} if kind == "door" else set()
-        _fields(opening, {"id", "wall", "type", "offset", "width"}, optional | COMMENTED, path, errors)
+        _fields(opening, {"id", "wall", "type", "offset", "width"}, optional | {"color"} | COMMENTED, path, errors)
+        _object_color(opening, path, errors)
         take_id(opening.get("id"), f"{path}.id")
         wall_id = opening.get("wall")
         if wall_id not in wall_by_id:
@@ -345,8 +480,9 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
             errors.append(f"{path} must be an object")
             continue
         if "points" in counter:
-            _fields(counter, {"id", "points"}, COMMENTED, path, errors)
+            _fields(counter, {"id", "points"}, {"color"} | COMMENTED, path, errors)
             take_id(counter.get("id"), f"{path}.id")
+            _object_color(counter, path, errors)
             points = counter.get("points")
             if not isinstance(points, list) or len(points) < 3:
                 errors.append(f"{path}.points must list at least 3 [x, y] corners")
@@ -358,8 +494,9 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
                 _num(point[0], f"{path}.points[{j}][0]", errors)
                 _num(point[1], f"{path}.points[{j}][1]", errors)
             continue
-        _fields(counter, {"id", "x", "y", "w", "h"}, {"overhang"} | COMMENTED, path, errors)
+        _fields(counter, {"id", "x", "y", "w", "h"}, {"overhang", "color"} | COMMENTED, path, errors)
         take_id(counter.get("id"), f"{path}.id")
+        _object_color(counter, path, errors)
         _box(counter, path, errors)
         if "overhang" in counter:
             overhang = counter["overhang"]
@@ -378,10 +515,11 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
         if not isinstance(fixture, dict):
             errors.append(f"{path} must be an object")
             continue
-        _fields(fixture, {"id", "type", "x", "y", "w", "h"}, {"rot"} | COMMENTED, path, errors)
+        _fields(fixture, {"id", "type", "x", "y", "w", "h"}, {"rot", "color"} | COMMENTED, path, errors)
         take_id(fixture.get("id"), f"{path}.id")
         if fixture.get("type") not in FIXTURE_TYPES:
-            errors.append(f"{path}.type is not a known fixture")
+            errors.append(f"{path}.type is not a known FF&E type")
+        _object_color(fixture, path, errors)
         _box(fixture, path, errors)
         if "rot" in fixture:
             _num(fixture.get("rot"), f"{path}.rot", errors)
@@ -391,7 +529,8 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
         if not isinstance(label, dict):
             errors.append(f"{path} must be an object")
             continue
-        _fields(label, {"text", "x", "y"}, {"size_px"} | COMMENTED, path, errors)
+        _fields(label, {"text", "x", "y"}, {"size_px", "color"} | COMMENTED, path, errors)
+        _object_color(label, path, errors)
         _str(label.get("text"), f"{path}.text", errors)
         _num(label.get("x"), f"{path}.x", errors)
         _num(label.get("y"), f"{path}.y", errors)
@@ -405,8 +544,9 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
         if not isinstance(region, dict):
             errors.append(f"{path} must be an object")
             continue
-        _fields(region, {"id", "x", "y", "w", "h"}, COMMENTED, path, errors)
+        _fields(region, {"id", "x", "y", "w", "h"}, {"color"} | COMMENTED, path, errors)
         take_id(region.get("id"), f"{path}.id")
+        _object_color(region, path, errors)
         _box(region, path, errors)
 
     for i, measure in enumerate(_list(plan, "measures", errors)):
@@ -414,8 +554,9 @@ def _validate_floor(plan: dict, *, floor: bool = False) -> list[str]:
         if not isinstance(measure, dict):
             errors.append(f"{path} must be an object")
             continue
-        _fields(measure, {"id", "x1", "y1", "x2", "y2"}, COMMENTED, path, errors)
+        _fields(measure, {"id", "x1", "y1", "x2", "y2"}, {"color"} | COMMENTED, path, errors)
         take_id(measure.get("id"), f"{path}.id")
+        _object_color(measure, path, errors)
         nums = [_num(measure.get(key), f"{path}.{key}", errors) for key in ("x1", "y1", "x2", "y2")]
         if all(n is not None for n in nums) and math.hypot(nums[2] - nums[0], nums[3] - nums[1]) <= 0:
             errors.append(f"{path} has no length")

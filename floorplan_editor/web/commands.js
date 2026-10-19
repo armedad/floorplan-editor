@@ -17,7 +17,7 @@ const TOOLS = [
   ["window", "Add a window", "N"],
   ["counter", "Draw a box counter", "C"],
   ["polygon", "Draw a counter outline", "P"],
-  ["fixture", "Place a fixture", "X"],
+  ["fixture", "Place FF&E", "X"],
   ["label", "Add a text label", "T"],
   ["erase", "White out sheet ink", "E"],
   ["calibrate", "Set the scale from a known length", "K"],

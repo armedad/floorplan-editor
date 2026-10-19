@@ -18,7 +18,15 @@ function shortList(keys) {
 // ---------------------------------------------------------------- fixtures sized to the selection
 
 function fixtureTypes() {
+  const catalog = E.app.state && E.app.state.ffe_types;
+  if (catalog && catalog.length) return catalog.map((item) => item.id);
   return (E.app.state && E.app.state.fixture_types) || Object.keys(E.FIXTURE_SIZES);
+}
+
+function fixtureLabel(type) {
+  const catalog = E.app.state && E.app.state.ffe_types;
+  const hit = catalog && catalog.find((item) => item.id === type);
+  return hit ? hit.name : type.replace(/_/g, " ");
 }
 
 function sizeMismatch(type, w, h) {
@@ -45,9 +53,9 @@ function showFixtureMenu(x, y) {
     .concat("generic");
   showMenu(
     [
-      { heading: `Fixture ${formatLength(w)} × ${formatLength(h)}: closest sizes first` },
+      { heading: `FF&E ${formatLength(w)} × ${formatLength(h)}: closest sizes first` },
       ...types.map((type, i) => ({
-        label: type.replace(/_/g, " "),
+        label: fixtureLabel(type),
         accel: i < 9 ? String(i + 1) : undefined,
         run: () => convertSelection("fixture", { type, rot: rotationFor(type, w, h) }),
       })),
